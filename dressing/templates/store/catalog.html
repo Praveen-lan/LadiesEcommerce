@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block title %}{% if query %}Search: {{ query }}{% else %}{{ active_tier|default:"All"|title }} Sarees{% endif %}{% endblock %}
+
+{% block content %}
+
+<section class="page-banner">
+    <div class="container text-center py-5">
+        {% if query %}
+        <span class="section-tag">Search Results</span>
+        <h1 class="page-title">Sarees for "{{ query }}"</h1>
+        {% else %}
+        <span class="section-tag">Our Collection</span>
+        <h1 class="page-title">{% if active_tier %}{{ active_tier|title }} Sarees{% else %}All Sarees{% endif %}</h1>
+        {% endif %}
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb justify-content-center">
+                <li class="breadcrumb-item"><a href="{% url 'store:home' %}">Home</a></li>
+                <li class="breadcrumb-item active" aria-current="page">{% if query %}Search{% else %}Catalog{% endif %}</li>
+            </ol>
+        </nav>
+    </div>
+</section>
+
+<section class="catalog-section">
+    <div class="container">
+        {% if query %}
+        <form action="{% url 'store:catalog' %}" method="get" class="search-results-bar">
+            <input class="form-control" type="search" name="q" value="{{ query }}" placeholder="Refine your search..." aria-label="Refine search">
+            <button class="btn btn-gold" type="submit"><i class="bi bi-search"></i> Search</button>
+        </form>
+        {% endif %}
+        <div class="filter-bar">
+            <div class="btn-group" role="group" aria-label="Filter by tier">
+                <a href="{% url 'store:catalog' %}{% if query %}?q={{ query }}{% endif %}" class="btn filter-btn {% if not active_tier %}active{% endif %}">All Sarees</a>
+                {% for cat in categories %}
+                <a href="{% url 'store:catalog' %}?tier={{ cat.tier }}{% if query %}&q={{ query }}{% endif %}" class="btn filter-btn {% if active_tier == cat.tier %}active{% endif %}">{{ cat.title }}</a>
+                {% endfor %}
+            </div>
+        </div>
+
+        {% if layers %}
+            {% for layer in layers %}
+            <div class="layer-block">
+                <div class="layer-head">
+                    <span class="layer-badge">{{ layer.category.tier|title }}</span>
+                    <h3>{{ layer.category.title }}</h3>
+                    <span class="layer-count">{{ layer.sarees|length }} piece{{ layer.sarees|length|pluralize }}</span>
+                </div>
+                <div class="row g-4">
+                    {% for saree in layer.sarees %}
+                    <div class="col-6 col-md-4 col-lg-3">
+                        {% include 'store/_saree_card.html' with saree=saree %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="empty-state text-center py-5">
+                <i class="bi bi-search display-1"></i>
+                <h4>{% if query %}No sarees found for "{{ query }}"{% else %}No sarees found{% endif %}</h4>
+                <p>{% if query %}Try a different keyword, or browse the full collection.{% else %}Please check back later or browse another collection.{% endif %}</p>
+                <a href="{% url 'store:catalog' %}" class="btn btn-gold rounded-pill px-4 mt-2">Browse All Sarees</a>
+            </div>
+        {% endif %}
+    </div>
+</section>
+
+{% endblock %}

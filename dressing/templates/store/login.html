@@ -1,0 +1,70 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome | {{ site.shop_name|default:"Saree Elegance" }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+    <main class="login-page">
+        {% for image in login_images %}<div class="login-backdrop {% if forloop.first %}is-visible{% endif %}" style="background-image: url('{{ image.image.url }}');"></div>{% endfor %}
+        <div class="login-shade"></div>
+        <div class="login-shell">
+            <section class="login-story">
+                <div class="login-mark"><i class="bi bi-flower1"></i></div>
+                <h1>Elegance woven for you.</h1>
+                <p>Step into a thoughtfully curated world of handloom stories, festive silks, and timeless drapes.</p>
+                <span class="login-note"><i class="bi bi-stars"></i> Your saree story begins here</span>
+            </section>
+            <section class="login-card">
+                {% if show_otp %}
+                    <h2>Verify your phone</h2>
+                    <p class="login-card-sub">Enter the 6-digit OTP for <strong>{{ step_phone }}</strong>.</p>
+                    {% if dev_otp %}
+                    <div class="otp-dev-box">
+                        <i class="bi bi-key"></i>
+                        <div>
+                            <span>Your OTP (demo mode)</span>
+                            <strong>{{ dev_otp }}</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if login_error %}<div class="login-error"><i class="bi bi-exclamation-circle me-1"></i>{{ login_error }}</div>{% endif %}
+                    <form method="post" action="{% url 'store:verify_otp' %}">
+                        {% csrf_token %}
+                        <div class="login-field">
+                            <label class="login-label" for="login-otp">Enter OTP</label>
+                            <!-- <i class="bi bi-phone"></i> -->
+                            <input class="form-control login-input otp-input" id="login-otp" name="otp" type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6-digit OTP" autocomplete="one-time-code" required>
+                        </div>
+                        <button class="btn btn-gold login-button" type="submit">Verify &amp; Continue <i class="bi bi-check2 ms-1"></i></button>
+                    </form>
+                {% else %}
+                    <h2>Welcome in</h2>
+                    <p class="login-card-sub">Tell us a little about you to enter the collection.</p>
+                    {% if login_error %}<div class="login-error"><i class="bi bi-exclamation-circle me-1"></i>{{ login_error }}</div>{% endif %}
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="login-field">
+                            <label class="login-label" for="login-name">Your name</label>
+                            <!-- <i class="bi bi-person"></i> -->
+                            <input class="form-control login-input" id="login-name" name="name" type="text" placeholder="Enter your name" autocomplete="name" required>
+                        </div>
+                        <div class="login-field">
+                            <label class="login-label" for="login-phone">Phone number</label>
+                            <!-- <i class="bi bi-phone"></i> -->
+                            <input class="form-control login-input" id="login-phone" name="phone" type="tel" placeholder="Enter your phone number" autocomplete="tel" inputmode="tel" required>
+                        </div>
+                        <button class="btn btn-gold login-button" type="submit">Get OTP <i class="bi bi-arrow-right ms-1"></i></button>
+                    </form>
+                {% endif %}
+            </section>
+        </div>
+    </main>
+</body>
+</html>

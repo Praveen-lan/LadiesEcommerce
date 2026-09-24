@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block title %}Order Confirmed{% endblock %}
+
+{% block content %}
+
+<section class="success-wrap">
+    <div class="container">
+        <div class="success-card">
+            <div class="success-icon"><i class="bi bi-check-circle-fill"></i></div>
+            <h2 class="text-success mb-1">Order Confirmed!</h2>
+            <p class="text-muted mb-2">Thank you, <strong>{{ order.name }}</strong>. Your payment was {% if order.payment_status == 'paid' %}received successfully{% else %}arranged (Cash on Delivery){% endif %}.</p>
+            <div class="order-id-chip"><i class="bi bi-receipt"></i> Order ID: {{ order.order_id }}</div>
+
+            <div class="text-start mt-4">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <h6 class="text-royal fw-bold"><i class="bi bi-truck me-1"></i>Delivery Details</h6>
+                        <ul class="list-unstyled small mb-0">
+                            <li>{{ order.name }} — {{ order.phone }}</li>
+                            <li>{{ order.address }}</li>
+                            <li>{{ order.city }}{% if order.state %}, {{ order.state }}{% endif %} — {{ order.pincode }}</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-royal fw-bold"><i class="bi bi-credit-card me-1"></i>Payment</h6>
+                        <ul class="list-unstyled small mb-0">
+                            <li>Method: {% for v, l in order.PaymentMethod.choices %}{% if v == order.payment_method %}{{ l }}{% endif %}{% endfor %}</li>
+                            <li>Status: <span class="badge {% if order.payment_status == 'paid' %}bg-success{% else %}bg-warning text-dark{% endif %}">{{ order.payment_status|title }}</span></li>
+                            <li>Amount: <strong>&#8377; {{ order.total }}</strong></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <h6 class="text-royal fw-bold mt-4"><i class="bi bi-bag-check me-1"></i>Items</h6>
+                <div class="table-responsive">
+                    <table class="table table-borderless table-sm mb-0 small align-middle">
+                        <tbody>
+                            {% for item in order.items.all %}
+                            <tr>
+                                <td class="ps-0">{{ item.name }}</td>
+                                <td class="text-center">x{{ item.quantity }}</td>
+                                <td class="text-end pe-0 fw-semibold">&#8377; {{ item.line_total|floatformat:0 }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr><td colspan="2" class="ps-0 text-muted">Subtotal / Delivery / GST</td>
+                                <td class="text-end pe-0 fw-semibold">&#8377; {{ order.subtotal|floatformat:0 }} / {% if order.delivery_charge %}&#8377; {{ order.delivery_charge|floatformat:0 }}{% else %}Free{% endif %} / &#8377; {{ order.gst|floatformat:0 }}</td></tr>
+                            <tr><td colspan="2" class="ps-0 fw-bold">Total</td>
+                                <td class="text-end pe-0 fw-bold text-danger">&#8377; {{ order.total|floatformat:0 }}</td></tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <p class="small text-muted mt-3 mb-3"><i class="bi bi-envelope-paper me-1"></i>A confirmation has been sent to {% if order.email %}{{ order.email }}{% else %}your registered contact{% endif %}. We will dispatch your sarees within 24 hours.</p>
+            </div>
+
+            <div class="d-flex gap-2 justify-content-center flex-wrap">
+                <a href="{% url 'store:catalog' %}" class="btn btn-gold rounded-pill px-4">Continue Shopping <i class="bi bi-arrow-right"></i></a>
+                <a href="{% url 'store:home' %}" class="btn btn-outline-gold rounded-pill px-4">Back to Home</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock %}
