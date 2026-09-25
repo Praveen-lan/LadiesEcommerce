@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Home{% endblock %}
+{% block title %}{{ seo_title }}{% endblock %}
 
 {% block content %}
 
@@ -22,7 +22,7 @@
                     <div class="hero-content">
                         <span class="hero-eyebrow">{{ banner.subtitle }}</span>
                         <h1>{{ banner.title }}</h1>
-                        <a href="{{ banner.link|default:'#contact-section' }}" class="btn btn-gold btn-lg rounded-pill px-4">Shop Collection <i class="bi bi-arrow-right"></i></a>
+                        <a href="{% if banner.link %}{{ banner.link }}{% else %}{% url 'store:contact' %}{% endif %}" class="btn btn-gold btn-lg rounded-pill px-4">Shop Collection <i class="bi bi-arrow-right"></i></a>
                     </div>
                 </div>
                 {% endfor %}

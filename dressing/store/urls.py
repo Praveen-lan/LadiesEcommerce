@@ -1,11 +1,13 @@
 from django.urls import path
 
 from .views import (
+    about,
     add_to_cart,
     cart_view,
     catalog,
     category_detail,
     checkout,
+    contact,
     generate_qr,
     home,
     login_view,
@@ -13,7 +15,9 @@ from .views import (
     order_success,
     profile,
     remove_from_cart,
+    robots_txt,
     saree_detail,
+    terms,
     update_cart,
     verify_otp,
 )
@@ -21,11 +25,18 @@ from .views import (
 app_name = "store"
 
 urlpatterns = [
+    path("robots.txt", robots_txt, name="robots"),
     path("", login_view, name="login"),
     path("verify-otp/", verify_otp, name="verify_otp"),
     path("logout/", logout_view, name="logout"),
     path("profile/", profile, name="profile"),
     path("home/", home, name="home"),
+    path("about/", about, name="about"),
+    path("about-us/", about, name="about_us"),
+    path("contact/", contact, name="contact"),
+    path("contact-us/", contact, name="contact_us"),
+    path("terms/", terms, name="terms"),
+    path("terms-conditions/", terms, name="terms_conditions"),
     path("catalog/", catalog, name="catalog"),
     path("catalog/<str:tier>/", category_detail, name="category_detail"),
     path("saree/<slug:slug>/", saree_detail, name="saree_detail"),

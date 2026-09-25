@@ -1,11 +1,12 @@
 {% extends 'base.html' %}
 
-{% block title %}{{ category.title }}{% endblock %}
+{% block title %}{{ seo_title }}{% endblock %}
 
 {% block content %}
 
-<section class="page-banner">
-    <div class="container text-center py-5">
+<section class="page-banner image-page-banner"{% if category.banner_image %} style="background-image:url('{{ category.banner_image.url }}');"{% endif %}>
+    <div class="image-page-overlay"></div>
+    <div class="container text-center py-5 position-relative">
         <span class="section-tag">{{ category.tier|title }} Collection</span>
         <h1 class="page-title">{{ category.title }}</h1>
         {% if category.subtitle %}<p class="page-sub">{{ category.subtitle }}</p>{% endif %}
@@ -21,11 +22,6 @@
 
 <section class="catalog-section">
     <div class="container">
-        {% if category.image %}
-        <div class="category-hero mb-4">
-            <img src="{{ category.image.url }}" alt="{{ category.title }}" class="img-fluid rounded-3 w-100">
-        </div>
-        {% endif %}
         <div class="row g-4">
             {% for saree in sarees %}
             <div class="col-6 col-md-4 col-lg-3">

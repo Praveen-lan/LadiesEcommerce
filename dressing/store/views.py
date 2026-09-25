@@ -1,18 +1,25 @@
+import json
 import random
 import re
 import uuid
 from datetime import datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
+from urllib.parse import quote
 
 from django.contrib import messages
 from django.core.files.base import ContentFile
 from django.db.models import Q
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.safestring import mark_safe
 from PIL import Image as PILImage
 from .cart import Cart, FREE_SHIPPING_ABOVE
+from .forms import ContactForm
 from .models import (
+    AboutPage,
     Banner,
     Category,
     Customer,
@@ -20,25 +27,125 @@ from .models import (
     OrderItem,
     OTPRequest,
     Saree,
+    SEO,
     SiteSettings,
+    TermsPage,
 )
 
 PROFILE_LOGO_SIZE = (300, 300)
 
 
+def _absolute_url(request, value):
+    if not value:
+        return ""
+    url = value.url if hasattr(value, "url") else str(value)
+    if url.startswith(("http://", "https://")):
+        return url
+    return request.build_absolute_uri(url) if request else url
+
+
+def _canonical_url(request, seo):
+    if not request:
+        return ""
+    if seo.canonical_base_url:
+        return f"{seo.canonical_base_url.rstrip('/')}{request.path}"
+    return request.build_absolute_uri(request.path)
+
+
+def _seo_context(request, site=None, seo=None, title=None, description=None, keywords=None, image=None, noindex=False, seo_type="website", product=None):
+    site = site or SiteSettings()
+    seo = seo or SEO()
+    title = title or seo.default_title
+    description = description or seo.default_description
+    keywords = keywords if keywords is not None else seo.default_keywords
+    if image is None:
+        image = seo.og_image
+        if not image:
+            banner = Banner.objects.filter(is_active=True).first()
+            image = banner.image if banner else None
+        if not image:
+            saree = Saree.objects.exclude(image="").first()
+            image = saree.image if saree else None
+
+    canonical = _canonical_url(request, seo)
+    image_url = _absolute_url(request, image)
+    site_name = site.shop_name or seo.site_name
+    if seo.canonical_base_url:
+        base_url = f"{seo.canonical_base_url.rstrip('/')}/"
+    else:
+        base_url = request.build_absolute_uri("/") if request else ""
+
+    organization = {
+        "@type": "Organization",
+        "@id": f"{base_url}#organization",
+        "name": site_name,
+        "url": base_url,
+    }
+    if site.logo:
+        organization["logo"] = _absolute_url(request, site.logo)
+    elif image_url:
+        organization["logo"] = image_url
+    if site.phone:
+        organization["telephone"] = site.phone
+    if site.email:
+        organization["email"] = site.email
+    if site.address:
+        organization["address"] = {"@type": "PostalAddress", "streetAddress": site.address}
+
+    schema_graph = [
+        organization,
+        {
+            "@type": "WebSite",
+            "@id": f"{base_url}#website",
+            "url": base_url,
+            "name": site_name,
+            "description": seo.default_description,
+        },
+    ]
+    if product:
+        product = dict(product)
+        product.setdefault("@id", f"{canonical}#product")
+        if image_url:
+            product.setdefault("image", [image_url])
+        schema_graph.append(product)
+
+    return {
+        "seo": seo,
+        "seo_title": title,
+        "seo_description": description,
+        "seo_keywords": keywords,
+        "seo_canonical": canonical,
+        "seo_image_url": image_url,
+        "seo_site_name": site_name,
+        "seo_twitter_handle": seo.twitter_handle,
+        "seo_google_site_verification": seo.google_site_verification,
+        "seo_noindex": noindex,
+        "seo_type": seo_type,
+        "seo_json_ld": mark_safe(json.dumps({"@context": "https://schema.org", "@graph": schema_graph}, ensure_ascii=False).replace("</", "<\\/")),
+    }
+
+
 def _base_context(request=None):
-    settings = SiteSettings.objects.first()
+    site = SiteSettings.objects.first()
+    seo = SEO.objects.first() or SEO()
     cart_count = 0
     customer = None
     if request is not None:
         cart_count = Cart(request).count()
         customer = _customer(request)
-    return {
-        "site": settings,
+    noindex = bool(
+        request
+        and request.resolver_match
+        and request.resolver_match.url_name in {"cart", "checkout", "profile", "order_success"}
+    )
+    context = {
+        "site": site,
         "categories": Category.objects.all(),
         "cart_count": cart_count,
         "customer": customer,
     }
+    context.update(_seo_context(request, site=site, seo=seo, noindex=noindex))
+    return context
 
 
 def _customer(request):
@@ -46,6 +153,29 @@ def _customer(request):
     if cid:
         return Customer.objects.filter(pk=cid).first()
     return None
+
+
+def _contact_map_url(site):
+    if site and site.map_embed_url:
+        return site.map_embed_url
+    address = site.address.strip() if site and site.address else "Chennai, Tamil Nadu, India"
+    return f"https://www.google.com/maps?q={quote(address)}&output=embed"
+
+
+def robots_txt(request):
+    seo = SEO.objects.first() or SEO()
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /admin/",
+        "Disallow: /cart/",
+        "Disallow: /checkout/",
+        "Disallow: /profile/",
+    ]
+    if seo.robots_extra.strip():
+        lines.append(seo.robots_extra.strip())
+    lines.append(f"Sitemap: {request.build_absolute_uri(reverse('sitemap'))}")
+    return HttpResponse("\n".join(lines) + "\n", content_type="text/plain")
 
 
 def resize_profile_logo(upload, size=PROFILE_LOGO_SIZE):
@@ -62,6 +192,16 @@ def resize_profile_logo(upload, size=PROFILE_LOGO_SIZE):
 
 def login_view(request):
     site = SiteSettings.objects.first()
+    seo = SEO.objects.first() or SEO()
+    site_name = site.shop_name if site else seo.site_name
+    seo_context = _seo_context(
+        request,
+        site=site,
+        seo=seo,
+        title=f"Login | {site_name}",
+        description="Sign in to Saree Elegance to access your account and continue shopping for beautiful sarees.",
+        noindex=True,
+    )
     login_images = Saree.objects.exclude(image="")[:3]
     error = ""
 
@@ -94,6 +234,7 @@ def login_view(request):
             "dev_otp": request.session.get("dev_otp", ""),
             "step_phone": request.session.get("visitor_phone", ""),
             "step_name": request.session.get("visitor_name", ""),
+            **seo_context,
         },
     )
 
@@ -110,6 +251,16 @@ def new_otp(phone):
 
 def verify_otp(request):
     site = SiteSettings.objects.first()
+    seo = SEO.objects.first() or SEO()
+    site_name = site.shop_name if site else seo.site_name
+    seo_context = _seo_context(
+        request,
+        site=site,
+        seo=seo,
+        title=f"Verify Login | {site_name}",
+        description="Verify your Saree Elegance account login.",
+        noindex=True,
+    )
     login_images = Saree.objects.exclude(image="")[:3]
 
     if request.method != "POST":
@@ -152,6 +303,7 @@ def verify_otp(request):
             "dev_otp": request.session.get("dev_otp", ""),
             "step_phone": phone,
             "step_name": name,
+            **seo_context,
         },
     )
 
@@ -211,6 +363,88 @@ def home(request):
     return render(request, "store/home.html", context)
 
 
+def about(request):
+    context = _base_context(request)
+    defaults = AboutPage()
+    page = AboutPage.objects.first() or defaults
+    about_saree = Saree.objects.exclude(image="").first()
+    image = page.image if page.image else (about_saree.image if about_saree else None)
+    context.update(
+        {
+            "about_page": page,
+            "about_image": image,
+            "about_image_alt": page.title if page == defaults else (about_saree.name if about_saree else "Saree collection"),
+            "about_title": page.title or defaults.title,
+            "about_subtitle": page.subtitle or defaults.subtitle,
+            "about_story": page.story or defaults.story,
+            "about_mission": page.mission or defaults.mission,
+            "delivery_commitment": page.delivery_commitment or defaults.delivery_commitment,
+            "support_commitment": page.support_commitment or defaults.support_commitment,
+            "exchange_commitment": page.exchange_commitment or defaults.exchange_commitment,
+        }
+    )
+    site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
+    context.update(
+        _seo_context(
+            request,
+            site=context["site"],
+            seo=context["seo"],
+            title=f"About Us | {site_name}",
+            description=context["about_subtitle"],
+            image=image,
+        )
+    )
+    return render(request, "store/about.html", context)
+
+
+def contact(request):
+    context = _base_context(request)
+    form = ContactForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        form.save()
+        messages.success(request, "Thank you. Your enquiry has been received.")
+        return redirect("store:contact")
+    context.update({"contact_form": form, "contact_map_url": _contact_map_url(context["site"])})
+    site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
+    context.update(
+        _seo_context(
+            request,
+            site=context["site"],
+            seo=context["seo"],
+            title=f"Contact Us | {site_name}",
+            description="Contact Saree Elegance for help with saree orders, product questions, delivery updates and exchanges.",
+            keywords="contact saree elegance, saree order support, saree delivery, saree exchange",
+        )
+    )
+    return render(request, "store/contact.html", context)
+
+
+def terms(request):
+    context = _base_context(request)
+    defaults = TermsPage()
+    page = TermsPage.objects.first() or defaults
+    context.update(
+        {
+            "terms_page": page,
+            "terms_title": page.title or defaults.title,
+            "terms_subtitle": page.subtitle or defaults.subtitle,
+            "terms_content": page.content or defaults.content,
+        }
+    )
+    site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
+    context.update(
+        _seo_context(
+            request,
+            site=context["site"],
+            seo=context["seo"],
+            title=f"Terms and Conditions | {site_name}",
+            description=context["terms_subtitle"],
+            keywords="terms and conditions, saree shopping terms, returns policy, delivery policy",
+        )
+    )
+    return render(request, "store/terms.html", context)
+
+
 def catalog(request):
     context = _base_context(request)
     active = request.GET.get("tier", "")
@@ -232,9 +466,43 @@ def catalog(request):
         sarees = list(qs)
         if sarees:
             layers.append({"category": cat, "sarees": sarees})
+    catalog_banner = Banner.objects.filter(is_active=True).first()
+    catalog_saree = Saree.objects.exclude(image="").first()
+    catalog_banner_image = (
+        catalog_banner.image
+        if catalog_banner and catalog_banner.image
+        else (catalog_saree.image if catalog_saree else None)
+    )
+    context["catalog_banner_image"] = catalog_banner_image
     context["layers"] = layers
     context["active_tier"] = active
     context["query"] = query
+    site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
+    active_category = next((cat for cat in cats if cat.tier == active), None)
+    if query:
+        seo_title = f"Search Results for {query} | {site_name}"
+        seo_description = f"Browse sarees matching {query} and find your next favourite weave at Saree Elegance."
+        seo_keywords = f"{query}, saree search, online sarees, Saree Elegance"
+    elif active_category:
+        seo_title = f"{active_category.title} | {site_name}"
+        seo_description = active_category.subtitle or f"Explore the {active_category.title} saree collection from Saree Elegance."
+        seo_keywords = f"{active_category.title}, {active_category.title.lower()} sarees, online sarees"
+    else:
+        seo_title = f"All Sarees | {site_name}"
+        seo_description = "Explore handloom, silk, georgette and cotton sarees for weddings, festivals and everyday celebrations."
+        seo_keywords = "all sarees, online sarees, handloom sarees, silk sarees, cotton sarees"
+    context.update(
+        _seo_context(
+            request,
+            site=context["site"],
+            seo=context["seo"],
+            title=seo_title,
+            description=seo_description,
+            keywords=seo_keywords,
+            image=catalog_banner_image,
+            noindex=bool(query),
+        )
+    )
     return render(request, "store/catalog.html", context)
 
 
@@ -243,6 +511,18 @@ def category_detail(request, tier):
     context = _base_context(request)
     context["category"] = category
     context["sarees"] = category.sarees.all()
+    site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
+    context.update(
+        _seo_context(
+            request,
+            site=context["site"],
+            seo=context["seo"],
+            title=f"{category.title} | {site_name}",
+            description=category.subtitle or f"Shop the {category.title} saree collection from Saree Elegance.",
+            keywords=f"{category.title}, {category.title.lower()} sarees, saree collection",
+            image=category.banner_image,
+        )
+    )
     return render(request, "store/category_detail.html", context)
 
 
@@ -252,6 +532,35 @@ def saree_detail(request, slug):
     context = _base_context(request)
     context["saree"] = saree
     context["related"] = related
+    site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
+    product_description = saree.description or f"Shop the {saree.name} from the {saree.category.title} collection at Saree Elegance."
+    canonical_url = _canonical_url(request, context["seo"])
+    product = {
+        "@type": "Product",
+        "name": saree.name,
+        "description": product_description,
+        "brand": {"@type": "Brand", "name": site_name},
+        "offers": {
+            "@type": "Offer",
+            "priceCurrency": "INR",
+            "price": str(saree.price),
+            "availability": "https://schema.org/InStock",
+            "url": canonical_url,
+        },
+    }
+    context.update(
+        _seo_context(
+            request,
+            site=context["site"],
+            seo=context["seo"],
+            title=f"{saree.name} | {site_name}",
+            description=product_description,
+            keywords=f"{saree.name}, {saree.fabric}, saree online, {saree.category.title}",
+            image=saree.image,
+            seo_type="product",
+            product=product,
+        )
+    )
     return render(request, "store/saree_detail.html", context)
 
 

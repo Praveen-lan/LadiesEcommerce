@@ -1,18 +1,55 @@
 from django.contrib import admin
 from .models import (
+    AboutPage,
     Banner,
     Category,
+    ContactMessage,
     Customer,
     Order,
     OrderItem,
     OTPRequest,
     Saree,
+    SEO,
     SiteSettings,
+    TermsPage,
 )
 
 admin.site.site_header = "Saree Elegance Admin"
 admin.site.site_title = "Saree Elegance Admin"
 admin.site.index_title = "Store Management"
+
+
+@admin.register(AboutPage)
+class AboutPageAdmin(admin.ModelAdmin):
+    list_display = ("title", "updated_at")
+    readonly_fields = ("updated_at",)
+
+    def has_add_permission(self, request):
+        return not AboutPage.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(TermsPage)
+class TermsPageAdmin(admin.ModelAdmin):
+    list_display = ("title", "updated_at")
+    readonly_fields = ("updated_at",)
+
+    def has_add_permission(self, request):
+        return not TermsPage.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ContactMessage)
+class ContactMessageAdmin(admin.ModelAdmin):
+    list_display = ("name", "email", "subject", "is_read", "created_at")
+    list_filter = ("is_read", "created_at")
+    search_fields = ("name", "email", "phone", "subject", "message")
+    readonly_fields = ("created_at",)
+    list_editable = ("is_read",)
 
 
 @admin.register(Customer)
@@ -75,6 +112,18 @@ class SiteSettingsAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return not SiteSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(SEO)
+class SEOAdmin(admin.ModelAdmin):
+    list_display = ("site_name", "updated_at")
+    readonly_fields = ("updated_at",)
+
+    def has_add_permission(self, request):
+        return not SEO.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
         return False

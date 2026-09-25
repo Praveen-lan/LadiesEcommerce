@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ seo_title }}{% endblock %}
+
+{% block content %}
+
+<section class="contact-map-section">
+    <div class="container-fluid px-0">
+        <div class="contact-map-frame">
+            <iframe src="{{ contact_map_url }}" title="Saree Elegance location map" loading="lazy" allowfullscreen></iframe>
+        </div>
+    </div>
+</section>
+
+<section class="contact-wrap">
+    <div class="container">
+        <div class="row g-4 align-items-stretch">
+            <div class="col-lg-5">
+                <div class="contact-card h-100">
+                    <span class="section-tag">Visit or reach out</span>
+                    <h2>We would love to hear from you</h2>
+                    <p class="contact-intro">Our support team is ready to help you find the perfect saree or answer questions about your order.</p>
+                    <ul class="contact-details">
+                        {% if site.address %}
+                        <li>
+                            <i class="bi bi-geo-alt-fill"></i>
+                            <div><strong>Our address</strong><span>{{ site.address }}</span></div>
+                        </li>
+                        {% endif %}
+                        {% if site.phone %}
+                        <li>
+                            <i class="bi bi-telephone-fill"></i>
+                            <div><strong>Phone</strong><a href="tel:{{ site.phone }}">{{ site.phone }}</a></div>
+                        </li>
+                        {% endif %}
+                        {% if site.email %}
+                        <li>
+                            <i class="bi bi-envelope-fill"></i>
+                            <div><strong>Email</strong><a href="mailto:{{ site.email }}">{{ site.email }}</a></div>
+                        </li>
+                        {% endif %}
+                        <li>
+                            <i class="bi bi-clock-fill"></i>
+                            <div><strong>Support hours</strong><span>Monday to Sunday, 24 hours</span></div>
+                        </li>
+                    </ul>
+                    <div class="contact-card-note">
+                        <i class="bi bi-chat-heart-fill"></i>
+                        <span>24/7 online support for a seamless shopping experience.</span>
+                    </div>
+                </div>
+            </div>
+            <div class="col-lg-7">
+                <div class="contact-card h-100">
+                    <span class="section-tag">Send a message</span>
+                    <h2>Make an enquiry</h2>
+                    <p class="contact-intro">Tell us how we can help and a member of our team will respond as soon as possible.</p>
+                    <form action="{% url 'store:contact' %}" method="post" class="contact-form" novalidate>
+                        {% csrf_token %}
+                        {% if contact_form.non_field_errors %}
+                        <div class="form-error mb-3">
+                            {% for error in contact_form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+                        </div>
+                        {% endif %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label" for="{{ contact_form.name.id_for_label }}">Your name</label>
+                                {{ contact_form.name }}
+                                {% for error in contact_form.name.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="{{ contact_form.email.id_for_label }}">Email address</label>
+                                {{ contact_form.email }}
+                                {% for error in contact_form.email.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="{{ contact_form.phone.id_for_label }}">Phone number <span class="optional-label">(optional)</span></label>
+                                {{ contact_form.phone }}
+                                {% for error in contact_form.phone.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="{{ contact_form.subject.id_for_label }}">Subject</label>
+                                {{ contact_form.subject }}
+                                {% for error in contact_form.subject.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="{{ contact_form.message.id_for_label }}">Your message</label>
+                                {{ contact_form.message }}
+                                {% for error in contact_form.message.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-gold rounded-pill px-4">Send enquiry <i class="bi bi-send"></i></button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+{% endblock %}

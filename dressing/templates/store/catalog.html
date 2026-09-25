@@ -1,17 +1,20 @@
 {% extends 'base.html' %}
 
-{% block title %}{% if query %}Search: {{ query }}{% else %}{{ active_tier|default:"All"|title }} Sarees{% endif %}{% endblock %}
+{% block title %}{{ seo_title }}{% endblock %}
 
 {% block content %}
 
-<section class="page-banner">
-    <div class="container text-center py-5">
+<section class="page-banner image-page-banner catalog-page-banner"{% if catalog_banner_image %} style="background-image:url('{{ catalog_banner_image.url }}');"{% endif %}>
+    <div class="image-page-overlay"></div>
+    <div class="container text-center py-5 position-relative">
         {% if query %}
         <span class="section-tag">Search Results</span>
         <h1 class="page-title">Sarees for "{{ query }}"</h1>
+        <p class="page-sub">Find a saree that matches your search.</p>
         {% else %}
         <span class="section-tag">Our Collection</span>
         <h1 class="page-title">{% if active_tier %}{{ active_tier|title }} Sarees{% else %}All Sarees{% endif %}</h1>
+        <p class="page-sub">Explore timeless weaves, graceful silk and everyday comfort for every celebration.</p>
         {% endif %}
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb justify-content-center">
@@ -21,6 +24,40 @@
         </nav>
     </div>
 </section>
+
+{% if not query and not active_tier %}
+<section class="category-banner-section">
+    <div class="container">
+        <div class="section-head">
+            <div>
+                <span class="section-tag">Browse by collection</span>
+                <h2 class="section-title">Find your perfect saree</h2>
+                <p class="section-sub">Explore three curated collections designed for every celebration.</p>
+            </div>
+            <a href="{% url 'store:catalog' %}" class="btn btn-outline-gold rounded-pill">View All Sarees <i class="bi bi-arrow-right"></i></a>
+        </div>
+        <div class="row g-4">
+            {% for cat in categories %}
+            <div class="col-md-4">
+                <article class="category-banner-card{% if not cat.banner_image %} category-banner-fallback{% endif %}"{% if cat.banner_image %} style="background-image:url('{{ cat.banner_image.url }}');"{% endif %}>
+                    <div class="category-banner-overlay"></div>
+                    <div class="category-banner-content">
+                        <span>{{ cat.tier|title }} collection</span>
+                        <h3>{{ cat.title }}</h3>
+                        {% if cat.subtitle %}<p>{{ cat.subtitle }}</p>{% endif %}
+                        <a href="{% url 'store:category_detail' cat.tier %}" class="btn btn-gold btn-sm rounded-pill">Explore collection <i class="bi bi-arrow-up-right"></i></a>
+                    </div>
+                </article>
+            </div>
+            {% empty %}
+            <div class="col-12">
+                <div class="empty-state text-center py-4"><p>Collections will appear here soon.</p></div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endif %}
 
 <section class="catalog-section">
     <div class="container">

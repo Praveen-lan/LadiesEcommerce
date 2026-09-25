@@ -1,4 +1,5 @@
 from django.db import models
+from django.urls import reverse
 
 
 class SiteSettings(models.Model):
@@ -8,6 +9,7 @@ class SiteSettings(models.Model):
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
     address = models.CharField(max_length=255, blank=True)
+    map_embed_url = models.URLField(blank=True)
     whatsapp = models.CharField(max_length=30, blank=True)
     facebook = models.URLField(blank=True)
     instagram = models.URLField(blank=True)
@@ -20,6 +22,96 @@ class SiteSettings(models.Model):
 
     def __str__(self):
         return self.shop_name
+
+
+class SEO(models.Model):
+    site_name = models.CharField(max_length=120, default="Saree Elegance")
+    default_title = models.CharField(
+        max_length=160,
+        default="Saree Elegance | Handloom, Silk and Cotton Sarees",
+    )
+    default_description = models.TextField(
+        max_length=160,
+        default="Shop beautiful handloom, silk, georgette and cotton sarees online at Saree Elegance. Find timeless weaves for weddings, festivals and everyday celebrations.",
+    )
+    default_keywords = models.CharField(
+        max_length=255,
+        default="sarees, online sarees, handloom sarees, silk sarees, cotton sarees, saree online shopping",
+    )
+    og_image = models.ImageField(upload_to="seo/", blank=True, null=True)
+    twitter_handle = models.CharField(max_length=100, blank=True)
+    canonical_base_url = models.URLField(blank=True)
+    google_site_verification = models.CharField(max_length=100, blank=True)
+    robots_extra = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "SEO Settings"
+        verbose_name_plural = "SEO Settings"
+
+    def __str__(self):
+        return self.site_name
+
+
+class AboutPage(models.Model):
+    title = models.CharField(max_length=150, default="About Our Story")
+    subtitle = models.CharField(
+        max_length=250,
+        default="A thoughtfully curated destination for sarees made to celebrate you.",
+    )
+    image = models.ImageField(upload_to="site/", blank=True, null=True)
+    story = models.TextField(
+        default="Saree Elegance is a celebration of timeless Indian craftsmanship and modern style. We bring together handloom textures, graceful silk, comfortable cotton and beautiful prints for every celebration, from everyday gatherings to treasured wedding moments."
+    )
+    mission = models.TextField(
+        default="Our promise is simple: help you find a saree that feels as special as the occasion you are dressing for, with thoughtful service and quality you can trust."
+    )
+    delivery_commitment = models.CharField(max_length=80, default="Fast Delivery")
+    support_commitment = models.CharField(max_length=80, default="24/7 Online Support")
+    exchange_commitment = models.CharField(max_length=80, default="Fast Exchange")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "About Page"
+        verbose_name_plural = "About Page"
+
+    def __str__(self):
+        return self.title
+
+
+class TermsPage(models.Model):
+    title = models.CharField(max_length=150, default="Terms and Conditions")
+    subtitle = models.CharField(
+        max_length=250,
+        default="Clear guidelines for a smooth and transparent shopping experience.",
+    )
+    content = models.TextField(
+        default="1. About Saree Elegance\nSaree Elegance provides thoughtfully curated sarees and related services through this website.\n\n2. Product information\nProduct images, descriptions, prices and availability may change. Please review the product details before placing an order.\n\n3. Orders and payments\nOrders are confirmed after successful payment or confirmation of cash on delivery. We may contact you to verify order details before dispatch.\n\n4. Delivery\nWe aim to dispatch orders quickly and provide delivery updates through the contact details shared for the order. Delivery timelines may vary by location.\n\n5. Exchanges and returns\nIf you receive a damaged or incorrect item, contact us promptly with your order details. Exchanges or returns are handled according to our quality-check and customer support process.\n\n6. Privacy\nWe use the information you provide to process orders, respond to enquiries and improve your shopping experience. We do not sell your personal information.\n\n7. Contact\nFor questions about an order, product or these terms, please use the Contact Us page to reach our support team."
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Terms and Conditions Page"
+        verbose_name_plural = "Terms and Conditions Page"
+
+    def __str__(self):
+        return self.title
+
+
+class ContactMessage(models.Model):
+    name = models.CharField(max_length=150)
+    email = models.EmailField()
+    phone = models.CharField(max_length=30, blank=True)
+    subject = models.CharField(max_length=150)
+    message = models.TextField()
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} - {self.subject}"
 
 
 class Category(models.Model):
@@ -41,6 +133,16 @@ class Category(models.Model):
     def __str__(self):
         return self.title
 
+    def get_absolute_url(self):
+        return reverse("store:category_detail", kwargs={"tier": self.tier})
+
+    @property
+    def banner_image(self):
+        if self.image:
+            return self.image
+        saree = self.sarees.exclude(image="").first()
+        return saree.image if saree else None
+
 
 class Saree(models.Model):
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="sarees")
@@ -59,6 +161,9 @@ class Saree(models.Model):
 
     def __str__(self):
         return self.name
+
+    def get_absolute_url(self):
+        return reverse("store:saree_detail", kwargs={"slug": self.slug})
 
     def save(self, *args, **kwargs):
         if not self.slug:
