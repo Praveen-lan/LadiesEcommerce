@@ -10,7 +10,7 @@
             <ol class="breadcrumb">
                 <li class="breadcrumb-item"><a href="{% url 'store:home' %}">Home</a></li>
                 <li class="breadcrumb-item"><a href="{% url 'store:catalog' %}">Catalog</a></li>
-                <li class="breadcrumb-item"><a href="{% url 'store:category_detail' saree.category.tier %}">{{ saree.category.title }}</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'store:category_detail' saree.category.slug %}">{{ saree.category.title }}</a></li>
                 <li class="breadcrumb-item active" aria-current="page">{{ saree.name|truncatechars:32 }}</li>
             </ol>
         </nav>
@@ -18,7 +18,7 @@
         <div class="row g-5">
             <div class="col-lg-6">
                 <div class="detail-image">
-                    <img src="{{ saree.image.url }}" alt="{{ saree.name }}">
+                    <img src="{{ saree.image_source }}" alt="{{ saree.name }}">
                     {% if saree.discount_percent %}
                     <span class="discount-badge">-{{ saree.discount_percent }}% OFF</span>
                     {% endif %}
@@ -27,7 +27,7 @@
 
             <div class="col-lg-6">
                 <div class="detail-info">
-                    <a class="detail-cat" href="{% url 'store:category_detail' saree.category.tier %}">{{ saree.category.title }}</a>
+                    <a class="detail-cat" href="{% url 'store:category_detail' saree.category.slug %}">{{ saree.category.title }}</a>
                     <h1 class="detail-title">{{ saree.name }}</h1>
 
                     <div class="detail-price">
@@ -79,7 +79,7 @@
                     <span class="section-tag">More from this collection</span>
                     <h2 class="section-title">You may also like</h2>
                 </div>
-                <a href="{% url 'store:category_detail' saree.category.tier %}" class="btn btn-outline-gold btn-sm rounded-pill">View All <i class="bi bi-arrow-right"></i></a>
+                <a href="{% url 'store:category_detail' saree.category.slug %}" class="btn btn-outline-gold btn-sm rounded-pill">View All <i class="bi bi-arrow-right"></i></a>
             </div>
             <div class="row g-4">
                 {% for saree in related %}

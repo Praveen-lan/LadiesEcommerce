@@ -20,7 +20,7 @@
 </head>
 <body>
     <main class="login-page">
-        {% for image in login_images %}<div class="login-backdrop {% if forloop.first %}is-visible{% endif %}" style="background-image: url('{{ image.image.url }}');"></div>{% endfor %}
+        {% for image in login_images %}<div class="login-backdrop {% if forloop.first %}is-visible{% endif %}" style="background-image: url('{{ image.image_source }}');"></div>{% endfor %}
         <div class="login-shade"></div>
         <div class="login-shell">
             <section class="login-story">

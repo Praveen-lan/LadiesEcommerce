@@ -4,7 +4,7 @@
 
 {% block content %}
 
-<section class="page-banner image-page-banner catalog-page-banner"{% if catalog_banner_image %} style="background-image:url('{{ catalog_banner_image.url }}');"{% endif %}>
+<section class="page-banner image-page-banner catalog-page-banner"{% if catalog_banner_image %} style="background-image:url('{{ catalog_banner_image }}');"{% endif %}>
     <div class="image-page-overlay"></div>
     <div class="container text-center py-5 position-relative">
         {% if query %}
@@ -39,13 +39,13 @@
         <div class="row g-4">
             {% for cat in categories %}
             <div class="col-md-4">
-                <article class="category-banner-card{% if not cat.banner_image %} category-banner-fallback{% endif %}"{% if cat.banner_image %} style="background-image:url('{{ cat.banner_image.url }}');"{% endif %}>
+                <article class="category-banner-card{% if not cat.banner_image %} category-banner-fallback{% endif %}"{% if cat.banner_image %} style="background-image:url('{{ cat.banner_image }}');"{% endif %}>
                     <div class="category-banner-overlay"></div>
                     <div class="category-banner-content">
                         <span>{{ cat.tier|title }} collection</span>
                         <h3>{{ cat.title }}</h3>
                         {% if cat.subtitle %}<p>{{ cat.subtitle }}</p>{% endif %}
-                        <a href="{% url 'store:category_detail' cat.tier %}" class="btn btn-gold btn-sm rounded-pill">Explore collection <i class="bi bi-arrow-up-right"></i></a>
+                        <a href="{% url 'store:category_detail' cat.slug %}" class="btn btn-gold btn-sm rounded-pill">Explore collection <i class="bi bi-arrow-up-right"></i></a>
                     </div>
                 </article>
             </div>

@@ -4,7 +4,7 @@
 
 {% block content %}
 
-<section class="page-banner image-page-banner"{% if category.banner_image %} style="background-image:url('{{ category.banner_image.url }}');"{% endif %}>
+<section class="page-banner image-page-banner"{% if category.banner_image %} style="background-image:url('{{ category.banner_image }}');"{% endif %}>
     <div class="image-page-overlay"></div>
     <div class="container text-center py-5 position-relative">
         <span class="section-tag">{{ category.tier|title }} Collection</span>

@@ -1,5 +1,9 @@
+from decimal import Decimal
+
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.urls import reverse
+from django.core.validators import URLValidator
 
 
 class SiteSettings(models.Model):
@@ -121,7 +125,8 @@ class Category(models.Model):
         BASIC = "basic", "Basic"
 
     title = models.CharField(max_length=120)
-    tier = models.CharField(max_length=20, choices=Tier.choices, unique=True)
+    tier = models.CharField(max_length=20, choices=Tier.choices, db_index=True)
+    slug = models.SlugField(max_length=150, unique=True, blank=True)
     subtitle = models.CharField(max_length=200, blank=True)
     image = models.ImageField(upload_to="categories/", blank=True, null=True)
     order = models.PositiveIntegerField(default=0)
@@ -133,15 +138,28 @@ class Category(models.Model):
     def __str__(self):
         return self.title
 
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+
+            base = slugify(self.title) or "category"
+            slug = base
+            counter = 2
+            while Category.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+                slug = f"{base}-{counter}"
+                counter += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
     def get_absolute_url(self):
-        return reverse("store:category_detail", kwargs={"tier": self.tier})
+        return reverse("store:category_detail", kwargs={"slug": self.slug or self.tier})
 
     @property
     def banner_image(self):
         if self.image:
-            return self.image
-        saree = self.sarees.exclude(image="").first()
-        return saree.image if saree else None
+            return self.image.url
+        saree = self.sarees.filter(models.Q(image__gt="") | models.Q(image_url__gt="")).first()
+        return saree.image_source if saree else None
 
 
 class Saree(models.Model):
@@ -152,7 +170,11 @@ class Saree(models.Model):
     mrp = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     fabric = models.CharField(max_length=120, blank=True)
     description = models.TextField(blank=True)
-    image = models.ImageField(upload_to="sarees/")
+    image = models.ImageField(upload_to="sarees/", blank=True)
+    image_url = models.URLField(
+        blank=True,
+        validators=[URLValidator(schemes=["http", "https"])],
+    )
     is_featured = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -161,6 +183,19 @@ class Saree(models.Model):
 
     def __str__(self):
         return self.name
+
+    def clean(self):
+        super().clean()
+        if not self.image and not self.image_url:
+            raise ValidationError({"image_url": "Upload an image or enter an image URL."})
+        if self.image and self.image_url:
+            raise ValidationError({"image_url": "Use either an uploaded image or an image URL, not both."})
+
+    @property
+    def image_source(self):
+        if self.image:
+            return self.image.url
+        return self.image_url
 
     def get_absolute_url(self):
         return reverse("store:saree_detail", kwargs={"slug": self.slug})
@@ -202,6 +237,24 @@ class Customer(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.phone})"
+
+
+class CartItem(models.Model):
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="cart_items")
+    saree = models.ForeignKey(Saree, on_delete=models.CASCADE, related_name="cart_items")
+    quantity = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["updated_at", "id"]
+        verbose_name = "Cart Item"
+        verbose_name_plural = "Cart Items"
+        constraints = [
+            models.UniqueConstraint(fields=["customer", "saree"], name="unique_customer_saree_cart_item"),
+        ]
+
+    def __str__(self):
+        return f"{self.quantity} x {self.saree.name} ({self.customer.phone})"
 
 
 class OTPRequest(models.Model):
@@ -283,6 +336,19 @@ class Order(models.Model):
 
     def __str__(self):
         return f"{self.order_id} - {self.name}"
+
+    def recalculate_totals(self):
+        from .cart import GST_RATE, SHIPPING_FEE, SHIPPING_FEE_ABOVE
+
+        subtotal = sum((item.line_total for item in self.items.all()), Decimal("0"))
+        delivery = SHIPPING_FEE if 0 < subtotal < SHIPPING_FEE_ABOVE else Decimal("0")
+        gst = (subtotal * GST_RATE).quantize(Decimal("0.01"))
+        self.subtotal = subtotal
+        self.delivery_charge = delivery
+        self.gst = gst
+        self.total = (subtotal + delivery + gst).quantize(Decimal("0.01"))
+        self.save(update_fields=["subtotal", "delivery_charge", "gst", "total"])
+        return self
 
 
 class OrderItem(models.Model):

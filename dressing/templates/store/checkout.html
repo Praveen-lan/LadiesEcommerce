@@ -20,38 +20,43 @@
                 <form method="post" id="checkout-form">
                     {% csrf_token %}
                     <input type="hidden" name="payment_method" id="payment-method" value="">
+                    {% if checkout_error %}<div class="alert alert-danger" role="alert">{{ checkout_error }}</div>{% endif %}
 
                     <div class="card border rounded-3 mb-4">
                         <div class="card-body p-4">
                             <h5 class="mb-3 text-royal"><i class="bi bi-person-lines-fill me-2"></i>Delivery Details</h5>
                             <div class="row g-3">
                                 <div class="col-md-6">
-                                    <label class="form-label">Full Name *</label>
-                                    <input type="text" name="name" class="form-control" placeholder="Your full name" required>
+                                    <label class="form-label" for="checkout-name">Full Name *</label>
+                                    <input type="text" id="checkout-name" name="name" class="form-control" placeholder="Your full name" value="{{ checkout_values.name|default:'' }}" aria-describedby="checkout-name-error" {% if checkout_error_field == 'name' %}aria-invalid="true"{% endif %} required>
+                                    <div id="checkout-name-error" class="invalid-feedback{% if checkout_error_field == 'name' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'name' %}{{ checkout_error }}{% else %}Please enter a valid name.{% endif %}</div>
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label">Phone Number *</label>
-                                    <input type="tel" name="phone" class="form-control" placeholder="+91 XXXXX XXXXX" pattern="[0-9+ ]{10,15}" required>
+                                    <label class="form-label" for="checkout-phone">Phone Number *</label>
+                                    <input type="tel" id="checkout-phone" name="phone" class="form-control" placeholder="10-digit mobile number" inputmode="numeric" maxlength="10" pattern="[0-9]{10}" title="Enter exactly 10 digits." value="{{ checkout_values.phone|default:'' }}" aria-describedby="checkout-phone-error" {% if checkout_error_field == 'phone' %}aria-invalid="true"{% endif %} required>
+                                    <div id="checkout-phone-error" class="invalid-feedback{% if checkout_error_field == 'phone' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'phone' %}{{ checkout_error }}{% else %}Please enter a valid 10-digit phone number.{% endif %}</div>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label">Email</label>
-                                    <input type="email" name="email" class="form-control" placeholder="you@example.com">
+                                    <label class="form-label" for="checkout-email">Email</label>
+                                    <input type="email" id="checkout-email" name="email" class="form-control" placeholder="you@example.com" value="{{ checkout_values.email|default:'' }}">
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label">Address *</label>
-                                    <textarea name="address" class="form-control" rows="2" placeholder="House, street, area" required></textarea>
+                                    <label class="form-label" for="checkout-address">Address *</label>
+                                    <textarea id="checkout-address" name="address" class="form-control" rows="2" placeholder="House, street, area" required>{{ checkout_values.address|default:'' }}</textarea>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label">City *</label>
-                                    <input type="text" name="city" class="form-control" placeholder="City" required>
+                                    <label class="form-label" for="checkout-city">City *</label>
+                                    <input type="text" id="checkout-city" name="city" class="form-control" placeholder="City" value="{{ checkout_values.city|default:'' }}" aria-describedby="checkout-city-error" {% if checkout_error_field == 'city' %}aria-invalid="true"{% endif %} required>
+                                    <div id="checkout-city-error" class="invalid-feedback{% if checkout_error_field == 'city' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'city' %}{{ checkout_error }}{% else %}Please enter a valid city name.{% endif %}</div>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label">State</label>
-                                    <input type="text" name="state" class="form-control" placeholder="State">
+                                    <label class="form-label" for="checkout-state">State</label>
+                                    <input type="text" id="checkout-state" name="state" class="form-control" placeholder="State" value="{{ checkout_values.state|default:'' }}" aria-describedby="checkout-state-error" {% if checkout_error_field == 'state' %}aria-invalid="true"{% endif %}>
+                                    <div id="checkout-state-error" class="invalid-feedback{% if checkout_error_field == 'state' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'state' %}{{ checkout_error }}{% else %}Please enter a valid state name.{% endif %}</div>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label">PIN Code *</label>
-                                    <input type="text" name="pincode" class="form-control" placeholder="600040" pattern="[0-9]{6}" required>
+                                    <label class="form-label" for="checkout-pincode">PIN Code *</label>
+                                    <input type="text" id="checkout-pincode" name="pincode" class="form-control" placeholder="600040" pattern="[0-9]{6}" value="{{ checkout_values.pincode|default:'' }}" required>
                                 </div>
                             </div>
                         </div>
@@ -162,7 +167,7 @@
                     <h5>Order Summary</h5>
                     {% for item in cart_items %}
                     <div class="d-flex gap-3 align-items-center py-2 border-bottom">
-                        <img src="{{ item.saree.image.url }}" alt="{{ item.saree.name }}" style="width: 46px; height: 60px; object-fit: cover; border-radius: 8px;">
+                        <img src="{{ item.saree.image_source }}" alt="{{ item.saree.name }}" style="width: 46px; height: 60px; object-fit: cover; border-radius: 8px;">
                         <div class="flex-grow-1">
                             <div class="small fw-semibold">{{ item.saree.name }}</div>
                             <div class="text-muted small">Qty: {{ item.quantity }}</div>
@@ -192,7 +197,116 @@
 
 {% block extra_js %}
 <script>
+    const checkoutForm = document.getElementById('checkout-form');
+    const nameField = document.getElementById('checkout-name');
+    const nameError = document.getElementById('checkout-name-error');
+    const phoneField = document.getElementById('checkout-phone');
+    const phoneError = document.getElementById('checkout-phone-error');
+    const cityField = document.getElementById('checkout-city');
+    const cityError = document.getElementById('checkout-city-error');
+    const stateField = document.getElementById('checkout-state');
+    const stateError = document.getElementById('checkout-state-error');
     const methodInput = document.getElementById('payment-method');
+
+    function isValidName(value) {
+        const name = value.trim();
+        return /\p{L}/u.test(name) && /^[\p{L}\p{M} .'-]+$/u.test(name);
+    }
+
+    function showNameError() {
+        nameField.setAttribute('aria-invalid', 'true');
+        nameError.classList.remove('d-none');
+        nameError.classList.add('d-block');
+    }
+
+    function clearNameError() {
+        nameField.removeAttribute('aria-invalid');
+        nameError.classList.remove('d-block');
+        nameError.classList.add('d-none');
+    }
+
+    function isValidPhone(value) {
+        return /^[0-9]{10}$/.test(value);
+    }
+
+    function showPhoneError() {
+        phoneField.setAttribute('aria-invalid', 'true');
+        phoneError.classList.remove('d-none');
+        phoneError.classList.add('d-block');
+    }
+
+    function clearPhoneError() {
+        phoneField.removeAttribute('aria-invalid');
+        phoneError.classList.remove('d-block');
+        phoneError.classList.add('d-none');
+    }
+
+    function isValidPlaceName(value) {
+        const place = value.trim();
+        return /\p{L}/u.test(place) && /^[\p{L}\p{M} .-]+$/u.test(place);
+    }
+
+    function setPlaceError(field, error, visible) {
+        field.setAttribute('aria-invalid', visible ? 'true' : 'false');
+        error.classList.toggle('d-block', visible);
+        error.classList.toggle('d-none', !visible);
+    }
+
+    nameField.addEventListener('blur', () => {
+        if (isValidName(nameField.value)) clearNameError();
+        else showNameError();
+    });
+    nameField.addEventListener('input', () => {
+        if (isValidName(nameField.value)) clearNameError();
+    });
+    nameField.addEventListener('invalid', showNameError);
+    phoneField.addEventListener('blur', () => {
+        if (isValidPhone(phoneField.value)) clearPhoneError();
+        else showPhoneError();
+    });
+    phoneField.addEventListener('input', () => {
+        if (isValidPhone(phoneField.value)) clearPhoneError();
+    });
+    phoneField.addEventListener('invalid', showPhoneError);
+    cityField.addEventListener('blur', () => setPlaceError(cityField, cityError, !isValidPlaceName(cityField.value)));
+    cityField.addEventListener('input', () => {
+        if (isValidPlaceName(cityField.value)) setPlaceError(cityField, cityError, false);
+    });
+    stateField.addEventListener('blur', () => setPlaceError(
+        stateField,
+        stateError,
+        Boolean(stateField.value.trim()) && !isValidPlaceName(stateField.value)
+    ));
+    stateField.addEventListener('input', () => {
+        if (!stateField.value.trim() || isValidPlaceName(stateField.value)) {
+            setPlaceError(stateField, stateError, false);
+        }
+    });
+    checkoutForm.addEventListener('submit', (event) => {
+        const validName = isValidName(nameField.value);
+        const validPhone = isValidPhone(phoneField.value);
+        const validCity = isValidPlaceName(cityField.value);
+        const validState = !stateField.value.trim() || isValidPlaceName(stateField.value);
+        if (!validName || !validPhone || !validCity || !validState) {
+            event.preventDefault();
+            if (!validName) {
+                showNameError();
+                nameField.focus();
+            }
+            if (!validPhone) {
+                showPhoneError();
+                if (validName) phoneField.focus();
+            }
+            if (!validCity) {
+                setPlaceError(cityField, cityError, true);
+                if (validName && validPhone) cityField.focus();
+            }
+            if (!validState) {
+                setPlaceError(stateField, stateError, true);
+                if (validName && validPhone && validCity) stateField.focus();
+            }
+        }
+    });
 
     function selectOption(option) {
         document.querySelectorAll('.pay-option').forEach(o => o.classList.remove('selected'));

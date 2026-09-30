@@ -2,6 +2,7 @@ import json
 import random
 import re
 import uuid
+import unicodedata
 from datetime import datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
@@ -10,7 +11,7 @@ from urllib.parse import quote
 from django.contrib import messages
 from django.core.files.base import ContentFile
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -64,8 +65,8 @@ def _seo_context(request, site=None, seo=None, title=None, description=None, key
             banner = Banner.objects.filter(is_active=True).first()
             image = banner.image if banner else None
         if not image:
-            saree = Saree.objects.exclude(image="").first()
-            image = saree.image if saree else None
+            saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
+            image = saree.image_source if saree else None
 
     canonical = _canonical_url(request, seo)
     image_url = _absolute_url(request, image)
@@ -190,6 +191,10 @@ def resize_profile_logo(upload, size=PROFILE_LOGO_SIZE):
     return ContentFile(buf.getvalue(), name=f"profile_{uuid.uuid4().hex[:8]}.png")
 
 
+def _customer_name_matches(customer, submitted_name):
+    return " ".join(customer.name.split()).casefold() == " ".join(submitted_name.split()).casefold()
+
+
 def login_view(request):
     site = SiteSettings.objects.first()
     seo = SEO.objects.first() or SEO()
@@ -202,7 +207,7 @@ def login_view(request):
         description="Sign in to Saree Elegance to access your account and continue shopping for beautiful sarees.",
         noindex=True,
     )
-    login_images = Saree.objects.exclude(image="")[:3]
+    login_images = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt=""))[:3]
     error = ""
 
     if request.method == "POST":
@@ -214,6 +219,10 @@ def login_view(request):
             error = "Please enter your name."
         elif not re.fullmatch(r"[0-9+()\-\s]{10,20}", phone) or len(digits) < 10:
             error = "Please enter a valid phone number."
+        elif (customer := Customer.objects.filter(phone=digits).first()) and not _customer_name_matches(customer, name):
+            error = "This mobile number is already registered under a different name."
+            for key in ("visitor_name", "visitor_phone", "otp_pending", "dev_otp"):
+                request.session.pop(key, None)
         else:
             otp = new_otp(digits)
             request.session["visitor_name"] = name
@@ -261,7 +270,7 @@ def verify_otp(request):
         description="Verify your Saree Elegance account login.",
         noindex=True,
     )
-    login_images = Saree.objects.exclude(image="")[:3]
+    login_images = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt=""))[:3]
 
     if request.method != "POST":
         return redirect("store:login")
@@ -277,15 +286,34 @@ def verify_otp(request):
     otp = OTPRequest.objects.filter(phone=phone, is_verified=False).first()
 
     if otp is not None and not otp.is_expired and not otp.is_locked and code.isdigit() and otp.code == code:
+        customer = Customer.objects.filter(phone=phone).first()
+        if customer and not _customer_name_matches(customer, name):
+            otp.is_verified = True
+            otp.save(update_fields=["is_verified"])
+            for key in ("visitor_name", "visitor_phone", "otp_pending", "dev_otp"):
+                request.session.pop(key, None)
+            return render(
+                request,
+                "store/login.html",
+                {
+                    "site": site,
+                    "login_images": login_images,
+                    "login_error": "This mobile number is already registered under a different name.",
+                    "show_otp": False,
+                    "dev_otp": "",
+                    "step_phone": "",
+                    "step_name": "",
+                    **seo_context,
+                },
+            )
         otp.is_verified = True
         otp.save(update_fields=["is_verified"])
-        customer, _ = Customer.objects.get_or_create(phone=phone, defaults={"name": name})
-        if name:
-            customer.name = name
-        customer.save()
+        if customer is None:
+            customer = Customer.objects.create(phone=phone, name=name)
         request.session["customer_id"] = customer.pk
         request.session.pop("otp_pending", None)
         request.session.pop("dev_otp", None)
+        Cart(request).merge_guest_cart()
         return redirect("store:home")
 
     fresh = new_otp(phone)
@@ -309,9 +337,7 @@ def verify_otp(request):
 
 
 def logout_view(request):
-    for key in ("customer_id", "visitor_name", "visitor_phone", "otp_pending", "dev_otp"):
-        request.session.pop(key, None)
-    request.session.modified = True
+    request.session.flush()
     return redirect("store:login")
 
 
@@ -356,7 +382,7 @@ def home(request):
 
     layers = []
     for cat in Category.objects.all().order_by("order"):
-        sarees = list(cat.sarees.all()[:10])
+        sarees = list(cat.sarees.filter(is_featured=True)[:10])
         if sarees:
             layers.append({"category": cat, "sarees": sarees})
     context["layers"] = layers
@@ -367,8 +393,8 @@ def about(request):
     context = _base_context(request)
     defaults = AboutPage()
     page = AboutPage.objects.first() or defaults
-    about_saree = Saree.objects.exclude(image="").first()
-    image = page.image if page.image else (about_saree.image if about_saree else None)
+    about_saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
+    image = page.image.url if page.image else (about_saree.image_source if about_saree else None)
     context.update(
         {
             "about_page": page,
@@ -467,11 +493,11 @@ def catalog(request):
         if sarees:
             layers.append({"category": cat, "sarees": sarees})
     catalog_banner = Banner.objects.filter(is_active=True).first()
-    catalog_saree = Saree.objects.exclude(image="").first()
+    catalog_saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
     catalog_banner_image = (
-        catalog_banner.image
+        catalog_banner.image.url
         if catalog_banner and catalog_banner.image
-        else (catalog_saree.image if catalog_saree else None)
+        else (catalog_saree.image_source if catalog_saree else None)
     )
     context["catalog_banner_image"] = catalog_banner_image
     context["layers"] = layers
@@ -506,8 +532,13 @@ def catalog(request):
     return render(request, "store/catalog.html", context)
 
 
-def category_detail(request, tier):
-    category = get_object_or_404(Category, tier=tier)
+def category_detail(request, slug):
+    category = Category.objects.filter(slug=slug).first()
+    if category is None:
+        legacy = list(Category.objects.filter(tier=slug)[:2])
+        if len(legacy) == 1:
+            return redirect(legacy[0].get_absolute_url(), permanent=True)
+        raise Http404(f"No category matches the given query: {slug}")
     context = _base_context(request)
     context["category"] = category
     context["sarees"] = category.sarees.all()
@@ -556,7 +587,7 @@ def saree_detail(request, slug):
             title=f"{saree.name} | {site_name}",
             description=product_description,
             keywords=f"{saree.name}, {saree.fabric}, saree online, {saree.category.title}",
-            image=saree.image,
+            image=saree.image_source,
             seo_type="product",
             product=product,
         )
@@ -622,6 +653,43 @@ def checkout(request):
             messages.error(request, "Your cart is empty.")
             return redirect("store:catalog")
 
+        checkout_error = None
+        checkout_error_field = None
+        if not _is_valid_checkout_name(name):
+            checkout_error = "Please enter a valid name."
+            checkout_error_field = "name"
+        elif not _is_valid_checkout_phone(phone):
+            checkout_error = "Please enter a valid 10-digit phone number."
+            checkout_error_field = "phone"
+        elif not _is_valid_checkout_place(city):
+            checkout_error = "Please enter a valid city name."
+            checkout_error_field = "city"
+        elif state and not _is_valid_checkout_place(state):
+            checkout_error = "Please enter a valid state name."
+            checkout_error_field = "state"
+
+        if checkout_error:
+            context = _base_context(request)
+            context.update(
+                {
+                    "cart_items": items,
+                    "totals": cart.totals(),
+                    "payment_methods": Order.PaymentMethod.choices,
+                    "checkout_error": checkout_error,
+                    "checkout_error_field": checkout_error_field,
+                    "checkout_values": {
+                        "name": request.POST.get("name", ""),
+                        "phone": request.POST.get("phone", ""),
+                        "email": email,
+                        "address": address,
+                        "city": city,
+                        "state": state,
+                        "pincode": pincode,
+                    },
+                }
+            )
+            return render(request, "store/checkout.html", context)
+
         valid_payment = [c[0] for c in Order.PaymentMethod.choices]
         if payment not in valid_payment:
             payment = "cod"
@@ -662,6 +730,36 @@ def checkout(request):
     return render(request, "store/checkout.html", context)
 
 
+def _is_valid_checkout_name(name):
+    has_letter = False
+    for character in name:
+        category = unicodedata.category(character)
+        if category.startswith("L"):
+            has_letter = True
+        elif category.startswith("M") or character in " .'-":
+            continue
+        else:
+            return False
+    return has_letter
+
+
+def _is_valid_checkout_phone(phone):
+    return re.fullmatch(r"[0-9]{10}", phone) is not None
+
+
+def _is_valid_checkout_place(value):
+    has_letter = False
+    for character in value:
+        category = unicodedata.category(character)
+        if category.startswith("L"):
+            has_letter = True
+        elif category.startswith("M") or character in " .-":
+            continue
+        else:
+            return False
+    return has_letter
+
+
 def order_success(request, order_id):
     order = get_object_or_404(Order, order_id=order_id)
     context = _base_context(request)
@@ -675,7 +773,6 @@ def generate_qr(request):
         import segno
 
         qr = segno.make_qr(f"upi://pay?pa={mail}&pn=Saree%20Elegance")
-        from django.http import HttpResponse
 
         response = HttpResponse(content_type="image/png")
         qr.save(response, kind="png", scale=8, border=2)

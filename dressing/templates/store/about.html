@@ -4,7 +4,7 @@
 
 {% block content %}
 
-<section class="page-banner about-page-banner"{% if about_image %} style="background-image:url('{{ about_image.url }}');"{% endif %}>
+<section class="page-banner about-page-banner"{% if about_image %} style="background-image:url('{{ about_image }}');"{% endif %}>
     <div class="image-page-overlay"></div>
     <div class="container text-center py-5 position-relative">
         <span class="section-tag">Our Story</span>
@@ -25,7 +25,7 @@
             <div class="col-lg-6">
                 <div class="about-feature-card about-image-card h-100">
                     {% if about_image %}
-                    <img src="{{ about_image.url }}" alt="{{ about_image_alt }}">
+                    <img src="{{ about_image }}" alt="{{ about_image_alt }}">
                     {% else %}
                     <div class="about-image-placeholder">
                         <i class="bi bi-flower1"></i>

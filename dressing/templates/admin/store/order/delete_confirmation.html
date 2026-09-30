@@ -1,0 +1,24 @@
+{% extends "admin/delete_confirmation.html" %}
+{% load i18n admin_urls %}
+
+{% block delete_confirm %}
+<p class="{% if perms_lacking or protected %}errornote{% endif %}">
+  {% blocktranslate with order_id=order.order_id item_count=order.items.count %}This deletes the ENTIRE order "{{ order_id }}" and all {{ item_count }} item(s) in it. To remove a single item, cancel and use "Remove item" on the order page.{% endblocktranslate %}
+</p>
+{% include "admin/includes/object_delete_summary.html" %}
+<h2>{% translate "Objects" %}</h2>
+<ul id="deleted-objects">{{ deleted_objects|unordered_list }}</ul>
+<form method="post">{% csrf_token %}
+<div>
+<input type="hidden" name="post" value="yes">
+{% if is_popup %}<input type="hidden" name="{{ is_popup_var }}" value="1">{% endif %}
+{% if to_field %}<input type="hidden" name="{{ to_field_var }}" value="{{ to_field }}">{% endif %}
+<p>
+  <label for="confirm_order_id">{% blocktranslate with order_id=order.order_id %}Type the order ID <code>{{ order_id }}</code> to confirm:{% endblocktranslate %}</label>
+  <input type="text" id="confirm_order_id" name="confirm_order_id" value="" autocomplete="off" required>
+</p>
+<input type="submit" class="default" value="{% translate 'Yes, I am sure' %}">
+<a role="button" href="#" class="button cancel-link">{% translate 'No, take me back' %}</a>
+</div>
+</form>
+{% endblock %}

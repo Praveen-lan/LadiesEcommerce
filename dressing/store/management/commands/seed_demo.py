@@ -178,7 +178,7 @@ class Command(BaseCommand):
                 site = SiteSettings(
                     shop_name="Saree Elegance",
                     tagline="A curated haven of handwoven silk, chiffon and cotton sarees — crafted to celebrate every moment of your life.",
-                    phone="+91 98765 43210",
+                    phone="9876543210",
                     email="hello@sareeelegance.in",
                     address="18, Heritage Textile Street, Anna Nagar, Chennai, Tamil Nadu 600040",
                     whatsapp="919876543210",

@@ -19,7 +19,7 @@
                 <div class="cart-table">
                     {% for item in cart_items %}
                     <div class="cart-row">
-                        <img src="{{ item.saree.image.url }}" alt="{{ item.saree.name }}">
+                        <img src="{{ item.saree.image_source }}" alt="{{ item.saree.name }}">
                         <div class="flex-grow-1">
                             <h6 class="cart-item-name mb-1">{{ item.saree.name }}</h6>
                             <div class="cart-item-meta">{{ item.saree.fabric|default:"Saree" }} | {{ item.saree.category.title }}</div>
