@@ -1,0 +1,24 @@
+{% extends "admin/delete_confirmation.html" %}
+{% load i18n admin_urls %}
+
+{% block delete_confirm %}
+<p class="{% if perms_lacking or protected %}errornote{% endif %}">
+  {% blocktranslate with category_title=category.title saree_count=category.sarees.count %}This deletes the ENTIRE category "{{ category_title }}" and all {{ saree_count }} saree(s) in it. To remove only one saree, cancel and use "Remove saree" on the category page.{% endblocktranslate %}
+</p>
+{% include "admin/includes/object_delete_summary.html" %}
+<h2>{% translate "Objects" %}</h2>
+<ul id="deleted-objects">{{ deleted_objects|unordered_list }}</ul>
+<form method="post">{% csrf_token %}
+<div>
+<input type="hidden" name="post" value="yes">
+{% if is_popup %}<input type="hidden" name="{{ is_popup_var }}" value="1">{% endif %}
+{% if to_field %}<input type="hidden" name="{{ to_field_var }}" value="{{ to_field }}">{% endif %}
+<p>
+  <label for="confirm_category_title">{% blocktranslate with category_title=category.title %}Type the category title <code>{{ category_title }}</code> to confirm:{% endblocktranslate %}</label>
+  <input type="text" id="confirm_category_title" name="confirm_category_title" value="" autocomplete="off" required>
+</p>
+<input type="submit" class="default" value="{% translate 'Yes, I am sure' %}">
+<a role="button" href="#" class="button cancel-link">{% translate "No, take me back" %}</a>
+</div>
+</form>
+{% endblock %}
