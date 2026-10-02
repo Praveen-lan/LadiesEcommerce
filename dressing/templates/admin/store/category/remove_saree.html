@@ -1,0 +1,35 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block bodyclass %}{{ block.super }} app-{{ opts.app_label }} model-{{ opts.model_name }} delete-confirmation{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+<a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+&rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+&rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+&rsaquo; <a href="{% url opts|admin_urlname:'change' category.pk|admin_urlquote %}">{{ category.title }}</a>
+&rsaquo; {% translate 'Remove saree' %}
+</div>
+{% endblock %}
+
+{% block content %}
+<h2>Remove a single saree from this category</h2>
+<p>
+  This removes only <strong>{{ saree.name }}</strong>. The category
+  <strong>{{ category.title }}</strong> and all of its other sarees are kept.
+</p>
+<ul id="remove-saree-summary">
+  <li>{{ saree.name }} &mdash; &#8377;{{ saree.price }}</li>
+</ul>
+<p>
+  To delete the category and every saree in it, close this page and use
+  <em>Delete</em> on the category page instead.
+</p>
+<form method="post">{% csrf_token %}
+  <div>
+    <input type="submit" class="default" value="{% translate 'Yes, remove this saree' %}">
+    <a role="button" class="button cancel-link" href="{% url opts|admin_urlname:'change' category.pk|admin_urlquote %}">{% translate 'No, take me back' %}</a>
+  </div>
+</form>
+{% endblock %}
