@@ -9,7 +9,7 @@ from store.models import Category, Order, OrderItem, Saree, SiteSettings
 @pytest.fixture
 def site_settings(db):
     return SiteSettings.objects.create(
-        shop_name="Saree Elegance",
+        shop_name="Swathi Designers",
         address="18, Heritage Textile Street, Anna Nagar, Chennai",
         phone="9876543210",
         email="hello@sareeelegance.in",

@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 
 PROFILE_LOGO_SIZE = (300, 300)
 
+CHECKOUT_PAYMENT_METHODS = ((Order.PaymentMethod.QR, Order.PaymentMethod.QR.label),)
+
 
 def _absolute_url(request, value):
     if not value:
@@ -51,8 +53,6 @@ def _absolute_url(request, value):
 def _canonical_url(request, seo):
     if not request:
         return ""
-    if seo.canonical_base_url:
-        return f"{seo.canonical_base_url.rstrip('/')}{request.path}"
     return request.build_absolute_uri(request.path)
 
 
@@ -63,10 +63,8 @@ def _seo_context(request, site=None, seo=None, title=None, description=None, key
     description = description or seo.default_description
     keywords = keywords if keywords is not None else seo.default_keywords
     if image is None:
-        image = seo.og_image
-        if not image:
-            banner = Banner.objects.filter(is_active=True).first()
-            image = banner.image if banner else None
+        banner = Banner.objects.filter(is_active=True).first()
+        image = banner.image if banner else None
         if not image:
             saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
             image = saree.image_source if saree else None
@@ -74,10 +72,7 @@ def _seo_context(request, site=None, seo=None, title=None, description=None, key
     canonical = _canonical_url(request, seo)
     image_url = _absolute_url(request, image)
     site_name = site.shop_name or seo.site_name
-    if seo.canonical_base_url:
-        base_url = f"{seo.canonical_base_url.rstrip('/')}/"
-    else:
-        base_url = request.build_absolute_uri("/") if request else ""
+    base_url = request.build_absolute_uri("/") if request else ""
 
     organization = {
         "@type": "Organization",
@@ -121,7 +116,6 @@ def _seo_context(request, site=None, seo=None, title=None, description=None, key
         "seo_canonical": canonical,
         "seo_image_url": image_url,
         "seo_site_name": site_name,
-        "seo_twitter_handle": seo.twitter_handle,
         "seo_google_site_verification": seo.google_site_verification,
         "seo_noindex": noindex,
         "seo_type": seo_type,
@@ -131,7 +125,7 @@ def _seo_context(request, site=None, seo=None, title=None, description=None, key
 
 def _base_context(request=None):
     site = SiteSettings.objects.first()
-    seo = SEO.objects.first() or SEO()
+    seo = SEO.current() or SEO()
     cart_count = 0
     customer = None
     if request is not None:
@@ -167,7 +161,7 @@ def _contact_map_url(site):
 
 
 def robots_txt(request):
-    seo = SEO.objects.first() or SEO()
+    seo = SEO.current() or SEO()
     lines = [
         "User-agent: *",
         "Allow: /",
@@ -200,14 +194,14 @@ def _customer_name_matches(customer, submitted_name):
 
 def login_view(request):
     site = SiteSettings.objects.first()
-    seo = SEO.objects.first() or SEO()
+    seo = SEO.current() or SEO()
     site_name = site.shop_name if site else seo.site_name
     seo_context = _seo_context(
         request,
         site=site,
         seo=seo,
         title=f"Login | {site_name}",
-        description="Sign in to Saree Elegance to access your account and continue shopping for beautiful sarees.",
+        description="Sign in to Swathi Designers to access your account and continue shopping for beautiful sarees.",
         noindex=True,
     )
     login_images = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt=""))[:3]
@@ -354,7 +348,7 @@ def home(request):
 def about(request):
     context = _base_context(request)
     defaults = AboutPage()
-    page = AboutPage.objects.first() or defaults
+    page = AboutPage.current() or defaults
     about_saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
     image = page.image.url if page.image else (about_saree.image_source if about_saree else None)
     context.update(
@@ -400,8 +394,8 @@ def contact(request):
             site=context["site"],
             seo=context["seo"],
             title=f"Contact Us | {site_name}",
-            description="Contact Saree Elegance for help with saree orders, product questions, delivery updates and exchanges.",
-            keywords="contact saree elegance, saree order support, saree delivery, saree exchange",
+            description="Contact Swathi Designers for help with saree orders, product questions, delivery updates and exchanges.",
+            keywords="contact swathi designers, saree order support, saree delivery, saree exchange",
         )
     )
     return render(request, "store/contact.html", context)
@@ -469,11 +463,11 @@ def catalog(request):
     active_category = next((cat for cat in cats if cat.tier == active), None)
     if query:
         seo_title = f"Search Results for {query} | {site_name}"
-        seo_description = f"Browse sarees matching {query} and find your next favourite weave at Saree Elegance."
-        seo_keywords = f"{query}, saree search, online sarees, Saree Elegance"
+        seo_description = f"Browse sarees matching {query} and find your next favourite weave at Swathi Designers."
+        seo_keywords = f"{query}, saree search, online sarees, Swathi Designers"
     elif active_category:
         seo_title = f"{active_category.title} | {site_name}"
-        seo_description = active_category.subtitle or f"Explore the {active_category.title} saree collection from Saree Elegance."
+        seo_description = active_category.subtitle or f"Explore the {active_category.title} saree collection from Swathi Designers."
         seo_keywords = f"{active_category.title}, {active_category.title.lower()} sarees, online sarees"
     else:
         seo_title = f"All Sarees | {site_name}"
@@ -512,7 +506,7 @@ def category_detail(request, slug):
             site=context["site"],
             seo=context["seo"],
             title=f"{category.title} | {site_name}",
-            description=category.subtitle or f"Shop the {category.title} saree collection from Saree Elegance.",
+            description=category.subtitle or f"Shop the {category.title} saree collection from Swathi Designers.",
             keywords=f"{category.title}, {category.title.lower()} sarees, saree collection",
             image=category.banner_image,
         )
@@ -557,7 +551,7 @@ def saree_detail(request, slug):
     context["saree"] = saree
     context["related"] = related
     site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
-    product_description = saree.description or f"Shop the {saree.name} from the {saree.category.title} collection at Saree Elegance."
+    product_description = saree.description or f"Shop the {saree.name} from the {saree.category.title} collection at Swathi Designers."
     canonical_url = _canonical_url(request, context["seo"])
     product = {
         "@type": "Product",
@@ -640,7 +634,7 @@ def checkout(request):
         city = request.POST.get("city", "").strip()
         state = request.POST.get("state", "").strip()
         pincode = request.POST.get("pincode", "").strip()
-        payment = request.POST.get("payment_method", "cod")
+        payment = Order.PaymentMethod.QR
 
         if not items:
             messages.error(request, "Your cart is empty.")
@@ -667,7 +661,7 @@ def checkout(request):
                 {
                     "cart_items": items,
                     "totals": cart.totals(),
-                    "payment_methods": Order.PaymentMethod.choices,
+                    "payment_methods": CHECKOUT_PAYMENT_METHODS,
                     "checkout_error": checkout_error,
                     "checkout_error_field": checkout_error_field,
                     "checkout_values": {
@@ -683,13 +677,13 @@ def checkout(request):
             )
             return render(request, "store/checkout.html", context)
 
-        valid_payment = [c[0] for c in Order.PaymentMethod.choices]
+        valid_payment = [c[0] for c in CHECKOUT_PAYMENT_METHODS]
         if payment not in valid_payment:
-            payment = "cod"
+            payment = Order.PaymentMethod.QR
 
         totals = cart.totals()
         order = Order(
-            order_id=random_id(),
+            order_id=new_order_id(),
             name=name or "Guest",
             phone=phone,
             email=email,
@@ -698,7 +692,7 @@ def checkout(request):
             state=state,
             pincode=pincode,
             payment_method=payment,
-            payment_status=Order.Status.PAID if payment != "cod" else Order.Status.PENDING,
+            payment_status=Order.Status.PAID,
             subtotal=totals["subtotal"],
             delivery_charge=totals["delivery"],
             gst=totals["gst"],
@@ -719,7 +713,7 @@ def checkout(request):
     context = _base_context(request)
     context["cart_items"] = items
     context["totals"] = totals
-    context["payment_methods"] = Order.PaymentMethod.choices
+    context["payment_methods"] = CHECKOUT_PAYMENT_METHODS
     return render(request, "store/checkout.html", context)
 
 
@@ -765,7 +759,7 @@ def generate_qr(request):
     try:
         import segno
 
-        qr = segno.make_qr(f"upi://pay?pa={mail}&pn=Saree%20Elegance")
+        qr = segno.make_qr(f"upi://pay?pa={mail}&pn=Swathi%20Designers")
 
         response = HttpResponse(content_type="image/png")
         qr.save(response, kind="png", scale=8, border=2)
@@ -776,6 +770,12 @@ def generate_qr(request):
         return HttpResponseNotFound("QR unavailable")
 
 
-def random_id():
-    stamp = datetime.now().strftime("%Y%m%d%H%M")
-    return f"SE{stamp}{random.randint(100, 999)}"
+def new_order_id():
+    date_id = timezone.localdate().strftime("%Y%m%d")
+    if not Order.objects.filter(order_id=date_id).exists():
+        return date_id
+    for suffix in range(2, 100):
+        candidate = f"{date_id}-{suffix}"
+        if not Order.objects.filter(order_id=candidate).exists():
+            return candidate
+    return f"{date_id}-{uuid.uuid4().hex[:4]}"

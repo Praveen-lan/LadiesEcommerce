@@ -46,7 +46,7 @@ def inline_management_data(response):
 class StorePageTests(TestCase):
     def setUp(self):
         SiteSettings.objects.create(
-            shop_name="Saree Elegance",
+            shop_name="Swathi Designers",
             address="18, Heritage Textile Street, Anna Nagar, Chennai",
             phone="+91 98765 43210",
             email="hello@sareeelegance.in",
@@ -143,20 +143,19 @@ class StorePageTests(TestCase):
 
     def test_seo_metadata_and_structured_data(self):
         seo, _ = SEO.objects.get_or_create()
-        seo.default_title = "Saree Elegance SEO Test"
+        seo.default_title = "Swathi Designers SEO Test"
         seo.default_description = "Search-optimized saree shopping description."
         seo.default_keywords = "test sarees, online sarees"
-        seo.canonical_base_url = "https://sareeelegance.example"
         seo.save()
 
         response = self.client.get(reverse("store:home"))
         content = response.content.decode()
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("<title>Saree Elegance SEO Test</title>", content)
+        self.assertIn("<title>Swathi Designers SEO Test</title>", content)
         self.assertIn('name="description" content="Search-optimized saree shopping description."', content)
         self.assertIn('name="keywords" content="test sarees, online sarees"', content)
-        self.assertIn('rel="canonical" href="https://sareeelegance.example/home/"', content)
+        self.assertIn('rel="canonical" href="http://testserver/home/"', content)
         self.assertIn('property="og:title"', content)
         self.assertIn('"@type": "WebSite"', content)
 
@@ -198,7 +197,7 @@ class StorePageTests(TestCase):
 
 class CheckoutNameValidationTests(TestCase):
     def setUp(self):
-        self.site = SiteSettings.objects.create(shop_name="Saree Elegance")
+        self.site = SiteSettings.objects.create(shop_name="Swathi Designers")
         customer = Customer.objects.create(name="Checkout Customer", phone="9876543210")
         self.category = Category.objects.create(title="Checkout Collection", tier=Category.Tier.HIGH)
         self.saree = Saree.objects.create(
@@ -224,7 +223,7 @@ class CheckoutNameValidationTests(TestCase):
                 "city": city,
                 "state": state,
                 "pincode": "600040",
-                "payment_method": "cod",
+                "payment_method": "qr",
             },
         )
 
@@ -283,7 +282,7 @@ class CheckoutNameValidationTests(TestCase):
 
 class CustomerLoginIdentityTests(TestCase):
     def setUp(self):
-        SiteSettings.objects.create(shop_name="Saree Elegance")
+        SiteSettings.objects.create(shop_name="Swathi Designers")
         self.customer = Customer.objects.create(name="User A", phone="9876543210")
 
     def test_mismatched_name_is_rejected_and_leaves_the_account_untouched(self):
@@ -352,12 +351,12 @@ class SiteSettingsAdminValidationTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_superuser("staff", "staff@example.com", "pw12345!")
         self.client.force_login(self.admin)
-        self.settings_obj = SiteSettings.objects.create(shop_name="Saree Elegance")
+        self.settings_obj = SiteSettings.objects.create(shop_name="Swathi Designers")
         self.url = reverse("admin:store_sitesettings_change", args=[self.settings_obj.pk])
 
     def _post(self, **overrides):
         payload = {
-            "shop_name": "Saree Elegance",
+            "shop_name": "Swathi Designers",
             "tagline": "Handwoven silk",
             "phone": "9876543210",
             "email": "hello@sareeelegance.in",
@@ -743,7 +742,7 @@ class FeaturedSareeAdminTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_superuser("staff", "staff@example.com", "pw12345!")
         self.client.force_login(self.admin)
-        SiteSettings.objects.create(shop_name="Saree Elegance")
+        SiteSettings.objects.create(shop_name="Swathi Designers")
         self.category = Category.objects.create(title="Featured Collection", tier=Category.Tier.HIGH)
         self.unfeatured = Saree.objects.create(
             category=self.category,
@@ -798,7 +797,7 @@ class CategoryCreationAdminTests(TestCase):
     def setUp(self):
         self.admin = User.objects.create_superuser("staff", "staff@example.com", "pw12345!")
         self.client.force_login(self.admin)
-        SiteSettings.objects.create(shop_name="Saree Elegance")
+        SiteSettings.objects.create(shop_name="Swathi Designers")
         customer = Customer.objects.create(name="Admin Shopper", phone="9876543210")
         session = self.client.session
         session["customer_id"] = customer.pk

@@ -176,7 +176,7 @@ class Command(BaseCommand):
         else:
             if not site:
                 site = SiteSettings(
-                    shop_name="Saree Elegance",
+                    shop_name="Swathi Designers",
                     tagline="A curated haven of handwoven silk, chiffon and cotton sarees — crafted to celebrate every moment of your life.",
                     phone="9876543210",
                     email="hello@sareeelegance.in",

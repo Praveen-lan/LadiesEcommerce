@@ -65,8 +65,8 @@ class SubCategoryAdminForm(forms.ModelForm):
         return slug
 
 
-admin.site.site_header = "Saree Elegance Admin"
-admin.site.site_title = "Saree Elegance Admin"
+admin.site.site_header = "Swathi Designers Admin"
+admin.site.site_title = "Swathi Designers Admin"
 admin.site.index_title = "Store Management"
 
 # Static path of the helper that routes the object "Delete" button to the ticked
@@ -81,9 +81,6 @@ SUBCATEGORY_FILTER_JS = "store/admin/subcategory-filter.js"
 class AboutPageAdmin(admin.ModelAdmin):
     list_display = ("title", "updated_at")
     readonly_fields = ("updated_at",)
-
-    def has_add_permission(self, request):
-        return not AboutPage.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
         return False
@@ -307,9 +304,6 @@ class SiteSettingsAdmin(admin.ModelAdmin):
 class SEOAdmin(admin.ModelAdmin):
     list_display = ("site_name", "updated_at")
     readonly_fields = ("updated_at",)
-
-    def has_add_permission(self, request):
-        return not SEO.objects.exists()
 
     def has_delete_permission(self, request, obj=None):
         return False

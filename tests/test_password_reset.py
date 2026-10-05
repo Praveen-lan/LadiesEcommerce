@@ -67,7 +67,7 @@ def test_password_reset_page_renders_with_storefront_chrome(client, staff_user):
     assert response.status_code == 200
     assert "store/password_reset_form.html" in rendered_templates(response)
     assert 'name="email"' in response.content.decode()
-    assert "Saree Elegance" in response.content.decode()
+    assert "Swathi Designers" in response.content.decode()
 
 
 def test_admin_login_links_to_the_reset_page(client):
