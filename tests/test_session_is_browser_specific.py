@@ -3,7 +3,7 @@
 Bug: the cart was persisted in the database keyed on the customer account, so
 state created while signed in in one browser was shared with every other
 browser. Everything about a visitor now lives in that visitor's own session,
-and the session key is rotated when the OTP login succeeds.
+and the session key is rotated when the login succeeds.
 """
 
 import pytest
@@ -15,9 +15,7 @@ from store.models import Customer
 
 
 def sign_in(client, name="Test Shopper", phone="9876543210"):
-    client.post(reverse("store:login"), {"name": name, "phone": phone})
-    code = client.session["dev_otp"]
-    return client.post(reverse("store:verify_otp"), {"otp": code})
+    return client.post(reverse("store:login"), {"name": name, "phone": phone})
 
 
 @pytest.fixture
@@ -141,13 +139,21 @@ def test_session_key_is_rotated_on_login(db, site_settings):
 
 
 @pytest.mark.django_db
+def test_login_needs_no_second_verification_step(db, site_settings):
+    browser = Client()
+
+    response = sign_in(browser)
+
+    assert response.status_code == 302
+    assert response["Location"] == reverse("store:home")
+    assert browser.session["customer_id"] == Customer.objects.get(phone="9876543210").pk
+
+
+@pytest.mark.django_db
 def test_login_does_not_leak_pre_authentication_state(db, site_settings):
     browser = Client()
 
-    browser.post(reverse("store:login"), {"name": "Test Shopper", "phone": "9876543210"})
-    assert browser.session["otp_pending"] is True
-
-    browser.post(reverse("store:verify_otp"), {"otp": browser.session["dev_otp"]})
+    sign_in(browser)
 
     for key in ("otp_pending", "dev_otp", "visitor_name", "visitor_phone"):
         assert key not in browser.session

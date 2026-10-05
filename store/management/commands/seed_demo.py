@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils.text import slugify
 
-from store.models import Banner, Category, Saree, SiteSettings
+from store.models import Banner, Category, DEFAULT_SUBCATEGORIES, Saree, SiteSettings, SubCategory
 
 try:
     from PIL import Image, ImageDraw
@@ -202,6 +202,14 @@ class Command(BaseCommand):
             cat.image = save_image(make_image(PALETTES[tier]["colors"][:2] + ["#000000"], HD["category"], PALETTES[tier]["name"], True), f"cat_{tier}.png")
             cat.save()
             self.stdout.write(self.style.SUCCESS(f"Category image for '{cat.title}' set."))
+
+            for position, (title, subtitle, keywords) in enumerate(DEFAULT_SUBCATEGORIES):
+                SubCategory.objects.get_or_create(
+                    category=cat,
+                    title=title,
+                    defaults={"subtitle": subtitle, "order": position},
+                )
+            self.stdout.write(self.style.SUCCESS(f"{len(DEFAULT_SUBCATEGORIES)} sub categories created for '{cat.title}'."))
 
         for tier_index, (tier, pal) in enumerate(PALETTES.items()):
             cat = Category.objects.get(tier=tier)

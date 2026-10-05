@@ -6,6 +6,16 @@
 
 <section class="detail-wrap">
     <div class="container">
+<nav aria-label="breadcrumb" class="pt-3">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'store:home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'store:catalog' %}">Catalog</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'store:category_detail' saree.category.slug %}">{{ saree.category.title }}</a></li>
+                {% if saree.subcategory %}<li class="breadcrumb-item"><a href="{% url 'store:subcategory_detail' saree.category.slug saree.subcategory.slug %}">{{ saree.subcategory.title }}</a></li>{% endif %}
+                <li class="breadcrumb-item active" aria-current="page">{{ saree.name|truncatechars:32 }}</li>
+            </ol>
+        </nav>
+
         <div class="row g-5">
             <div class="col-lg-6">
                 <div class="detail-image">
@@ -16,6 +26,7 @@
             <div class="col-lg-6">
                 <div class="detail-info">
                     <a class="detail-cat" href="{% url 'store:category_detail' saree.category.slug %}">{{ saree.category.title }}</a>
+                    {% if saree.subcategory %}<a class="detail-cat" href="{% url 'store:subcategory_detail' saree.category.slug saree.subcategory.slug %}">{{ saree.subcategory.title }}</a>{% endif %}
                     <h1 class="detail-title">{{ saree.name }}</h1>
 
                     <div class="detail-price">

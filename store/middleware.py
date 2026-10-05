@@ -16,7 +16,7 @@ class PrivateHtmlCacheMiddleware:
 
 
 class StorefrontLoginRequiredMiddleware(MiddlewareMixin):
-    guest_routes = {"home", "login", "verify_otp", "robots"}
+    guest_routes = {"home", "login", "robots"}
 
     def process_view(self, request, view_func, view_args, view_kwargs):
         match = request.resolver_match

@@ -1,10 +1,8 @@
 import json
 import logging
-import random
 import re
 import uuid
 import unicodedata
-from datetime import datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from urllib.parse import quote
@@ -28,10 +26,10 @@ from .models import (
     Customer,
     Order,
     OrderItem,
-    OTPRequest,
     Saree,
     SEO,
     SiteSettings,
+    SubCategory,
     TermsPage,
 )
 
@@ -139,7 +137,7 @@ def _base_context(request=None):
     )
     context = {
         "site": site,
-        "categories": Category.objects.all(),
+        "categories": Category.objects.prefetch_related("subcategories"),
         "cart_count": cart_count,
         "customer": customer,
     }
@@ -209,27 +207,24 @@ def login_view(request):
     error = ""
 
     if request.method == "POST":
-        name = request.POST.get("name", "").strip()
+        name = " ".join(request.POST.get("name", "").split())
         phone = request.POST.get("phone", "").strip()
         digits = re.sub(r"\D", "", phone)
+        customer = Customer.objects.filter(phone=digits).first() if digits else None
 
         if len(name) < 2:
             error = "Please enter your name."
         elif not re.fullmatch(r"[0-9+()\-\s]{10,20}", phone) or len(digits) < 10:
             error = "Please enter a valid phone number."
-        elif (customer := Customer.objects.filter(phone=digits).first()) and not _customer_name_matches(customer, name):
+        elif customer and not _customer_name_matches(customer, name):
             error = "This mobile number is already registered under a different name."
-            for key in ("visitor_name", "visitor_phone", "otp_pending", "dev_otp"):
-                request.session.pop(key, None)
-        else:
-            otp = new_otp(digits)
-            request.session["visitor_name"] = name
-            request.session["visitor_phone"] = digits
-            request.session["otp_pending"] = True
-            request.session["dev_otp"] = otp
-            return redirect("store:login")
+        elif customer is None:
+            customer = Customer.objects.create(phone=digits, name=name)
 
-    show_otp = bool(request.session.get("otp_pending"))
+        if not error:
+            _login_customer(request, customer)
+            return redirect("store:home")
+
     return render(
         request,
         "store/login.html",
@@ -237,23 +232,9 @@ def login_view(request):
             "site": site,
             "login_images": login_images,
             "login_error": error,
-            "show_otp": show_otp,
-            "dev_otp": request.session.get("dev_otp", ""),
-            "step_phone": request.session.get("visitor_phone", ""),
-            "step_name": request.session.get("visitor_name", ""),
             **seo_context,
         },
     )
-
-
-def new_otp(phone):
-    code = f"{random.randint(0, 999999):06d}"
-    OTPRequest.objects.create(
-        phone=phone,
-        code=code,
-        expires_at=timezone.now() + timedelta(minutes=10),
-    )
-    return code
 
 
 def _login_customer(request, customer):
@@ -266,8 +247,6 @@ def _login_customer(request, customer):
     """
     request.session.cycle_key()
     request.session["customer_id"] = customer.pk
-    for key in ("otp_pending", "dev_otp", "visitor_name", "visitor_phone"):
-        request.session.pop(key, None)
     return customer
 
 
@@ -313,84 +292,10 @@ class StorePasswordResetCompleteView(StorePasswordContextMixin, auth_views.Passw
     template_name = "store/password_reset_complete.html"
 
 
-def verify_otp(request):
-    site = SiteSettings.objects.first()
-    seo = SEO.current() or SEO()
-    site_name = site.shop_name if site else seo.site_name
-    seo_context = _seo_context(
-        request,
-        site=site,
-        seo=seo,
-        title=f"Verify Login | {site_name}",
-        description="Verify your Swathi Designers account login.",
-        noindex=True,
-    )
-    login_images = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt=""))[:3]
-
-    if request.method != "POST":
-        return redirect("store:login")
-
-    phone = request.session.get("visitor_phone", "")
-    name = request.session.get("visitor_name", "")
-    code = request.POST.get("otp", "").strip()
-    error = ""
-
-    if not phone:
-        return redirect("store:login")
-
-    otp = OTPRequest.objects.filter(phone=phone, is_verified=False).first()
-
-    if otp is not None and not otp.is_expired and not otp.is_locked and code.isdigit() and otp.code == code:
-        customer = Customer.objects.filter(phone=phone).first()
-        if customer and not _customer_name_matches(customer, name):
-            otp.is_verified = True
-            otp.save(update_fields=["is_verified"])
-            for key in ("visitor_name", "visitor_phone", "otp_pending", "dev_otp"):
-                request.session.pop(key, None)
-            return render(
-                request,
-                "store/login.html",
-                {
-                    "site": site,
-                    "login_images": login_images,
-                    "login_error": "This mobile number is already registered under a different name.",
-                    "show_otp": False,
-                    "dev_otp": "",
-                    "step_phone": "",
-                    "step_name": "",
-                    **seo_context,
-                },
-            )
-        otp.is_verified = True
-        otp.save(update_fields=["is_verified"])
-        if customer is None:
-            customer = Customer.objects.create(phone=phone, name=name)
-        _login_customer(request, customer)
-        return redirect("store:home")
-
-    fresh = new_otp(phone)
-    request.session["dev_otp"] = fresh
-    error = "Your OTP was incorrect or expired. A new random OTP has been generated."
-
-    return render(
-        request,
-        "store/login.html",
-        {
-            "site": site,
-            "login_images": login_images,
-            "login_error": error,
-            "show_otp": True,
-            "dev_otp": request.session.get("dev_otp", ""),
-            "step_phone": phone,
-            "step_name": name,
-            **seo_context,
-        },
-    )
-
-
 def logout_view(request):
     request.session.flush()
     return redirect("store:login")
+
 def profile(request):
     customer = _customer(request)
     if not customer:
@@ -592,6 +497,7 @@ def category_detail(request, slug):
     context = _base_context(request)
     context["category"] = category
     context["sarees"] = category.sarees.all()
+    context["subcategories"] = category.subcategories.all()
     site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
     context.update(
         _seo_context(
@@ -605,6 +511,36 @@ def category_detail(request, slug):
         )
     )
     return render(request, "store/category_detail.html", context)
+
+
+def subcategory_detail(request, category_slug, slug):
+    subcategory = get_object_or_404(
+        SubCategory.objects.select_related("category"),
+        category__slug=category_slug,
+        slug=slug,
+    )
+    context = _base_context(request)
+    context["subcategory"] = subcategory
+    context["category"] = subcategory.category
+    context["sarees"] = subcategory.sarees.all()
+    context["subcategories"] = subcategory.category.subcategories.all()
+    site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
+    context.update(
+        _seo_context(
+            request,
+            site=context["site"],
+            seo=context["seo"],
+            title=f"{subcategory.title} | {site_name}",
+            description=subcategory.subtitle
+            or f"Shop {subcategory.title} in the {subcategory.category.title} collection from Saree Elegance.",
+            keywords=(
+                f"{subcategory.title.lower()}, {subcategory.title.lower()} online, "
+                f"{subcategory.category.title.lower()} sarees, online sarees"
+            ),
+            image=subcategory.banner_image,
+        )
+    )
+    return render(request, "store/subcategory_detail.html", context)
 
 
 def saree_detail(request, slug):

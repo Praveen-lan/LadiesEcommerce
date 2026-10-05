@@ -45,6 +45,38 @@ def run_inline_delete_script(**spec):
     return json.loads(completed.stdout)
 
 
+def inline_formset(response, prefix):
+    """Return the inline formset with ``prefix``.
+
+    The category page stacks the sub category inline above the saree one, so the
+    saree formset is no longer at a fixed position in the list.
+    """
+    for inline in response.context["inline_admin_formsets"]:
+        if inline.formset.prefix == prefix:
+            return inline.formset
+    raise AssertionError(f"no inline formset with prefix {prefix!r}")
+
+
+def inline_management_data(response):
+    """Empty management-form data for every inline rendered on ``response``.
+
+    Django validates each inline formset separately, so a save payload has to
+    satisfy all of them, not just the one a test cares about.
+    """
+    data = {}
+    for inline in response.context["inline_admin_formsets"]:
+        formset = inline.formset
+        data.update(
+            {
+                f"{formset.prefix}-TOTAL_FORMS": str(formset.total_form_count()),
+                f"{formset.prefix}-INITIAL_FORMS": str(formset.initial_form_count()),
+                f"{formset.prefix}-MIN_NUM_FORMS": "0",
+                f"{formset.prefix}-MAX_NUM_FORMS": "1000",
+            }
+        )
+    return data
+
+
 def inline_rows(content, formset_prefix, order):
     """Build the DOM-stub rows the browser would have for ``formset_prefix``."""
     rows = []
@@ -161,7 +193,10 @@ def test_category_change_page_renders_the_markup_the_script_relies_on(
             r'<input type="hidden" name="sarees-(\d+)-id" value="(\d+)"', content
         )
     )
-    assert ids == {"0": str(silk_saree.pk), "1": str(chiffon_saree.pk)}
+    # Row order follows Saree.Meta.ordering ("-created_at", no tiebreaker), so only
+    # the index -> pk mapping matters here, not which saree lands on which row.
+    assert set(ids) == {"0", "1"}
+    assert set(ids.values()) == {str(silk_saree.pk), str(chiffon_saree.pk)}
     for index in ids:
         assert f'<input type="checkbox" name="sarees-{index}-DELETE"' in content
 
@@ -179,8 +214,11 @@ def test_script_sends_only_the_ticked_saree_when_delete_is_clicked(
     delete_url = reverse("admin:store_category_delete", args=[category.pk])
     content = client.get(change_url).content.decode()
     rows = inline_rows(content, "sarees", 2)
-    for row, ticked in zip(rows, (False, True)):
-        row["deleteChecked"] = ticked
+    # Row order follows Saree.Meta.ordering ("-created_at", no tiebreaker), so
+    # tick whichever row actually renders the chiffon saree.
+    victim = next(row for row in rows if row["id"] == str(chiffon_saree.pk))
+    for row in rows:
+        row["deleteChecked"] = row is victim
 
     result = run_inline_delete_script(
         origin="http://testserver",
@@ -460,8 +498,6 @@ def test_saving_with_a_ticked_checkbox_still_keeps_the_category(
     client.force_login(admin_user)
     change_url = reverse("admin:store_category_change", args=[category.pk])
     response = client.get(change_url)
-    formset = response.context["inline_admin_formsets"][0].formset
-    prefix = formset.prefix
 
     client.post(
         change_url,
@@ -473,13 +509,10 @@ def test_saving_with_a_ticked_checkbox_still_keeps_the_category(
             "image": "",
             "order": "0",
             "_save": "Save",
-            f"{prefix}-TOTAL_FORMS": str(formset.total_form_count()),
-            f"{prefix}-INITIAL_FORMS": str(formset.initial_form_count()),
-            f"{prefix}-MIN_NUM_FORMS": "0",
-            f"{prefix}-MAX_NUM_FORMS": "1000",
-            f"{prefix}-0-id": str(silk_saree.pk),
-            f"{prefix}-1-id": str(chiffon_saree.pk),
-            f"{prefix}-1-DELETE": "on",
+            **inline_management_data(response),
+            f"sarees-0-id": str(silk_saree.pk),
+            f"sarees-1-id": str(chiffon_saree.pk),
+            "sarees-1-DELETE": "on",
         },
     )
 

@@ -1,4 +1,3 @@
-from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
 import tempfile
@@ -7,10 +6,41 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
-from django.utils import timezone
 from PIL import Image
 
-from .models import Category, ContactMessage, Customer, Order, OrderItem, OTPRequest, Saree, SEO, SiteSettings
+from .models import Category, ContactMessage, Customer, Order, OrderItem, Saree, SEO, SiteSettings, SubCategory
+
+
+def inline_formset(response, prefix):
+    """Return the inline formset with ``prefix``.
+
+    The category admin stacks the sub category inline above the saree one, so
+    the saree formset is no longer at a fixed position in the list.
+    """
+    for inline in response.context["inline_admin_formsets"]:
+        if inline.formset.prefix == prefix:
+            return inline.formset
+    raise AssertionError(f"no inline formset with prefix {prefix!r}")
+
+
+def inline_management_data(response):
+    """Empty management-form data for every inline rendered on ``response``.
+
+    Django validates each inline formset separately, so a save payload has to
+    satisfy all of them, not just the one a test cares about.
+    """
+    data = {}
+    for inline in response.context["inline_admin_formsets"]:
+        formset = inline.formset
+        data.update(
+            {
+                f"{formset.prefix}-TOTAL_FORMS": str(formset.total_form_count()),
+                f"{formset.prefix}-INITIAL_FORMS": str(formset.initial_form_count()),
+                f"{formset.prefix}-MIN_NUM_FORMS": "0",
+                f"{formset.prefix}-MAX_NUM_FORMS": "1000",
+            }
+        )
+    return data
 
 
 class StorePageTests(TestCase):
@@ -160,8 +190,9 @@ class StorePageTests(TestCase):
     def test_navigation_order(self):
         response = self.client.get(reverse("store:home"))
         content = response.content.decode()
-        positions = [content.index(label) for label in ("Home</a>", "All Catalog</a>", "Collections", "About Us</a>", "Contact Us</a>")]
+        positions = [content.index(label) for label in ("Home</a>", "About Us</a>", "Collections", "Contact Us</a>")]
         self.assertEqual(positions, sorted(positions))
+        self.assertNotIn(">All Catalog</a>", content)
 
 
 class CheckoutNameValidationTests(TestCase):
@@ -254,7 +285,7 @@ class CustomerLoginIdentityTests(TestCase):
         SiteSettings.objects.create(shop_name="Swathi Designers")
         self.customer = Customer.objects.create(name="User A", phone="9876543210")
 
-    def test_mismatched_name_is_rejected_before_otp_is_issued(self):
+    def test_mismatched_name_is_rejected_and_leaves_the_account_untouched(self):
         response = self.client.post(
             reverse("store:login"),
             {"name": "User B", "phone": self.customer.phone},
@@ -262,8 +293,7 @@ class CustomerLoginIdentityTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "already registered under a different name")
-        self.assertFalse(OTPRequest.objects.filter(phone=self.customer.phone).exists())
-        self.assertNotIn("otp_pending", self.client.session)
+        self.assertNotIn("customer_id", self.client.session)
         self.customer.refresh_from_db()
         self.assertEqual(self.customer.name, "User A")
 
@@ -272,41 +302,39 @@ class CustomerLoginIdentityTests(TestCase):
             reverse("store:login"),
             {"name": "  user   a ", "phone": self.customer.phone},
         )
-        self.assertRedirects(response, reverse("store:login"))
-        code = self.client.session["dev_otp"]
-
-        response = self.client.post(reverse("store:verify_otp"), {"otp": code})
 
         self.assertRedirects(response, reverse("store:home"))
         self.customer.refresh_from_db()
         self.assertEqual(self.customer.name, "User A")
         self.assertEqual(self.client.session["customer_id"], self.customer.pk)
 
-    def test_mismatched_stale_otp_cannot_authenticate_or_change_existing_customer(self):
-        code = "123456"
-        OTPRequest.objects.create(
-            phone=self.customer.phone,
-            code=code,
-            expires_at=timezone.now() + timedelta(minutes=10),
+    def test_new_phone_number_registers_a_customer_in_one_step(self):
+        response = self.client.post(
+            reverse("store:login"),
+            {"name": "New Shopper", "phone": "91234 56789"},
         )
-        session = self.client.session
-        session.update(
-            {
-                "visitor_name": "User B",
-                "visitor_phone": self.customer.phone,
-                "otp_pending": True,
-                "dev_otp": code,
-            }
-        )
-        session.save()
 
-        response = self.client.post(reverse("store:verify_otp"), {"otp": code})
+        self.assertRedirects(response, reverse("store:home"))
+        created = Customer.objects.get(phone="9123456789")
+        self.assertEqual(created.name, "New Shopper")
+        self.assertEqual(self.client.session["customer_id"], created.pk)
+
+    def test_login_page_has_no_otp_step(self):
+        response = self.client.get(reverse("store:login"))
+        content = response.content.decode()
+
+        self.assertContains(response, "Welcome to Swathi Designers")
+        self.assertNotIn("otp", content.lower())
+
+    def test_invalid_phone_is_rejected_without_signing_in(self):
+        response = self.client.post(
+            reverse("store:login"),
+            {"name": "User A", "phone": "12345"},
+        )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "already registered under a different name")
+        self.assertContains(response, "Please enter a valid phone number.")
         self.assertNotIn("customer_id", self.client.session)
-        self.customer.refresh_from_db()
-        self.assertEqual(self.customer.name, "User A")
 
 
 class AdminPasswordResetTests(TestCase):
@@ -614,7 +642,7 @@ class CategorySareeRemovalTests(TestCase):
 
     def test_inline_delete_removes_only_selected_saree_and_keeps_category(self):
         response = self.client.get(self.change_url)
-        formset = response.context["inline_admin_formsets"][0].formset
+        formset = inline_formset(response, "sarees")
         prefix = formset.prefix
         data = {
             "title": self.category.title,
@@ -624,10 +652,7 @@ class CategorySareeRemovalTests(TestCase):
             "image": "",
             "order": str(self.category.order),
             "_save": "Save",
-            f"{prefix}-TOTAL_FORMS": str(formset.total_form_count()),
-            f"{prefix}-INITIAL_FORMS": str(formset.initial_form_count()),
-            f"{prefix}-MIN_NUM_FORMS": "0",
-            f"{prefix}-MAX_NUM_FORMS": "1000",
+            **inline_management_data(response),
             f"{prefix}-0-id": str(self.first_saree.pk),
             f"{prefix}-0-DELETE": "on",
             f"{prefix}-1-id": str(self.second_saree.pk),
@@ -737,7 +762,7 @@ class FeaturedSareeAdminTests(TestCase):
     def test_unchecking_inline_featured_removes_saree_from_homepage(self):
         change_url = reverse("admin:store_category_change", args=[self.category.pk])
         response = self.client.get(change_url)
-        formset = response.context["inline_admin_formsets"][0].formset
+        formset = inline_formset(response, "sarees")
         prefix = formset.prefix
 
         self.assertFalse(formset.forms[0].fields["is_featured"].disabled)
@@ -749,10 +774,7 @@ class FeaturedSareeAdminTests(TestCase):
             "image": "",
             "order": str(self.category.order),
             "_save": "Save",
-            f"{prefix}-TOTAL_FORMS": str(formset.total_form_count()),
-            f"{prefix}-INITIAL_FORMS": str(formset.initial_form_count()),
-            f"{prefix}-MIN_NUM_FORMS": "0",
-            f"{prefix}-MAX_NUM_FORMS": "1000",
+            **inline_management_data(response),
             f"{prefix}-0-id": str(self.unfeatured.pk),
             f"{prefix}-1-id": str(self.featured.pk),
             f"{prefix}-1-is_featured": "on",
@@ -789,7 +811,8 @@ class CategoryCreationAdminTests(TestCase):
 
     def _post_category(self, title, tier, saree=None, slug=""):
         add_page = self.client.get(self.add_url)
-        prefix = add_page.context["inline_admin_formsets"][0].formset.prefix
+        formset = inline_formset(add_page, "sarees")
+        prefix = formset.prefix
         total_forms = 1 if saree else 0
         data = {
             "title": title,
@@ -799,11 +822,9 @@ class CategoryCreationAdminTests(TestCase):
             "image": "",
             "order": "0",
             "_save": "Save",
-            f"{prefix}-TOTAL_FORMS": str(total_forms),
-            f"{prefix}-INITIAL_FORMS": "0",
-            f"{prefix}-MIN_NUM_FORMS": "0",
-            f"{prefix}-MAX_NUM_FORMS": "1000",
+            **inline_management_data(add_page),
         }
+        data[f"{prefix}-TOTAL_FORMS"] = str(total_forms)
         if saree:
             data.update(
                 {
@@ -868,7 +889,7 @@ class CategoryCreationAdminTests(TestCase):
         )
 
         response = self.client.get(reverse("admin:store_category_change", args=[category.pk]))
-        formset = response.context["inline_admin_formsets"][0].formset
+        formset = inline_formset(response, "sarees")
         empty_form = formset.empty_form
         existing_form = formset.forms[0]
 
@@ -882,7 +903,7 @@ class CategoryCreationAdminTests(TestCase):
         category = Category.objects.create(title="URL Image Collection", tier=Category.Tier.MEDIUM)
         change_url = reverse("admin:store_category_change", args=[category.pk])
         response = self.client.get(change_url)
-        prefix = response.context["inline_admin_formsets"][0].formset.prefix
+        prefix = inline_formset(response, "sarees").prefix
         data = {
             "title": category.title,
             "tier": category.tier,
@@ -891,10 +912,9 @@ class CategoryCreationAdminTests(TestCase):
             "image": "",
             "order": "0",
             "_save": "Save",
+            **inline_management_data(response),
             f"{prefix}-TOTAL_FORMS": "1",
             f"{prefix}-INITIAL_FORMS": "0",
-            f"{prefix}-MIN_NUM_FORMS": "0",
-            f"{prefix}-MAX_NUM_FORMS": "1000",
             f"{prefix}-0-name": "URL Image Saree",
             f"{prefix}-0-price": "1799.00",
             f"{prefix}-0-mrp": "1999.00",

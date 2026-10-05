@@ -7,7 +7,7 @@ from django.utils.html import format_html
 from django.utils.http import unquote
 from django import forms
 
-from .forms import SiteSettingsForm
+from .forms import SareeAdminForm, SiteSettingsForm
 from .models import (
     AboutPage,
     Banner,
@@ -20,6 +20,7 @@ from .models import (
     Saree,
     SEO,
     SiteSettings,
+    SubCategory,
     TermsPage,
 )
 
@@ -41,6 +42,29 @@ class CategoryAdminForm(forms.ModelForm):
         return slug
 
 
+class SubCategoryAdminForm(forms.ModelForm):
+    """Slug stays optional and is only unique inside its own category."""
+
+    slug = forms.SlugField(required=False)
+
+    class Meta:
+        model = SubCategory
+        fields = "__all__"
+
+    def clean_slug(self):
+        slug = self.cleaned_data["slug"]
+        category = self.cleaned_data.get("category") or getattr(self.instance, "category", None)
+        if not slug or category is None:
+            return slug
+        base = slug
+        suffix = 2
+        siblings = SubCategory.objects.filter(category=category).exclude(pk=self.instance.pk)
+        while siblings.filter(slug=slug).exists():
+            slug = f"{base}-{suffix}"
+            suffix += 1
+        return slug
+
+
 admin.site.site_header = "Swathi Designers Admin"
 admin.site.site_title = "Swathi Designers Admin"
 admin.site.index_title = "Store Management"
@@ -50,6 +74,7 @@ admin.site.index_title = "Store Management"
 # inside the path, which turns a cache-busting query string into a 404 and
 # silently disables the whole selected-rows delete flow.
 SELECTED_INLINE_DELETE_JS = "store/admin/selected-inline-delete.js"
+SUBCATEGORY_FILTER_JS = "store/admin/subcategory-filter.js"
 
 
 @admin.register(AboutPage)
@@ -299,6 +324,22 @@ class SareeInlineForm(forms.ModelForm):
                 field.disabled = name != "is_featured"
 
 
+class SubCategoryInline(admin.TabularInline):
+    """Sub categories are created straight from the category they belong to."""
+
+    model = SubCategory
+    form = SubCategoryAdminForm
+    extra = 0
+    can_delete = True
+    fields = ("title", "slug", "subtitle", "image", "order", "saree_count")
+    readonly_fields = ("saree_count",)
+    ordering = ("order", "id")
+
+    @admin.display(description="Sarees")
+    def saree_count(self, obj):
+        return obj.sarees.count() if obj.pk else "-"
+
+
 class SareeInline(admin.TabularInline):
     model = Saree
     form = SareeInlineForm
@@ -321,11 +362,11 @@ class SareeInline(admin.TabularInline):
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
     form = CategoryAdminForm
-    list_display = ("title", "tier", "order", "saree_count")
+    list_display = ("title", "tier", "order", "saree_count", "subcategory_count")
     list_filter = ("tier",)
     search_fields = ("title", "subtitle")
     prepopulated_fields = {"slug": ("title",)}
-    inlines = [SareeInline]
+    inlines = [SubCategoryInline, SareeInline]
     delete_confirmation_template = "admin/store/category/delete_confirmation.html"
 
     class Media:
@@ -334,6 +375,10 @@ class CategoryAdmin(admin.ModelAdmin):
     @admin.display(description="Sarees")
     def saree_count(self, obj):
         return obj.sarees.count()
+
+    @admin.display(description="Sub categories")
+    def subcategory_count(self, obj):
+        return obj.subcategories.count()
 
     def get_urls(self):
         return [
@@ -423,11 +468,40 @@ class CategoryAdmin(admin.ModelAdmin):
         return super().delete_view(request, object_id, extra_context)
 
 
+class SubCategorySareeInline(admin.TabularInline):
+    """Lets staff file existing sarees into a sub category from its own page."""
+
+    model = Saree
+    form = SareeInlineForm
+    fk_name = "subcategory"
+    extra = 0
+    can_delete = True
+    fields = ("name", "price", "mrp", "fabric", "image", "image_url", "is_featured")
+
+
+@admin.register(SubCategory)
+class SubCategoryAdmin(admin.ModelAdmin):
+    form = SubCategoryAdminForm
+    list_display = ("title", "category", "order", "saree_count")
+    list_filter = ("category",)
+    search_fields = ("title", "subtitle", "category__title")
+    autocomplete_fields = ("category",)
+    inlines = [SubCategorySareeInline]
+
+    @admin.display(description="Sarees")
+    def saree_count(self, obj):
+        return obj.sarees.count()
+
+
 @admin.register(Saree)
 class SareeAdmin(admin.ModelAdmin):
-    list_display = ("name", "category", "price", "mrp", "is_featured", "created_at")
-    list_filter = ("category", "is_featured")
+    form = SareeAdminForm
+    list_display = ("name", "category", "subcategory", "price", "mrp", "is_featured", "created_at")
+    list_filter = ("category", "subcategory", "is_featured")
     search_fields = ("name", "description", "fabric")
+
+    class Media:
+        js = (SUBCATEGORY_FILTER_JS,)
 
 
 @admin.register(Banner)
