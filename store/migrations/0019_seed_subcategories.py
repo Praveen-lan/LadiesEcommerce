@@ -50,7 +50,7 @@ def unseed_subcategories(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("store", "0014_subcategory"),
+        ("store", "0018_subcategory"),
     ]
 
     operations = [
