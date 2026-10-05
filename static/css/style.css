@@ -149,7 +149,7 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .btn-buy:hover { background: var(--gold-dark); color: #fff; }
 
 /* ===== Saree Detail ===== */
-.detail-wrap { padding: 10px 0 70px; }
+.detail-wrap { padding: 40px 0 70px; }
 .detail-wrap .breadcrumb-item a { color: var(--emerald); }
 .detail-image { position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid #e4dec6; box-shadow: 0 18px 40px rgba(6,43,30,.14); }
 .detail-image img { width: 100%; height: auto; display: block; aspect-ratio: 3 / 4; object-fit: cover; }

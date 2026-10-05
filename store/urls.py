@@ -46,5 +46,5 @@ urlpatterns = [
     path("cart/remove/<int:saree_id>/", remove_from_cart, name="remove_from_cart"),
     path("checkout/", checkout, name="checkout"),
     path("qr.png", generate_qr, name="generate_qr"),
-    path("order/<str:order_id>/", order_success, name="order_success"),
+    path("order/<order_id:order_id>/", order_success, name="order_success"),
 ]

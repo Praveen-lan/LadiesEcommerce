@@ -6,22 +6,10 @@
 
 <section class="detail-wrap">
     <div class="container">
-        <nav aria-label="breadcrumb" class="pt-3">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="{% url 'store:home' %}">Home</a></li>
-                <li class="breadcrumb-item"><a href="{% url 'store:catalog' %}">Catalog</a></li>
-                <li class="breadcrumb-item"><a href="{% url 'store:category_detail' saree.category.slug %}">{{ saree.category.title }}</a></li>
-                <li class="breadcrumb-item active" aria-current="page">{{ saree.name|truncatechars:32 }}</li>
-            </ol>
-        </nav>
-
         <div class="row g-5">
             <div class="col-lg-6">
                 <div class="detail-image">
                     <img src="{{ saree.image_source }}" alt="{{ saree.name }}">
-                    {% if saree.discount_percent %}
-                    <span class="discount-badge">-{{ saree.discount_percent }}% OFF</span>
-                    {% endif %}
                 </div>
             </div>
 
