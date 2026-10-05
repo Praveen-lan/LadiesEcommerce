@@ -1,10 +1,8 @@
 import json
 import logging
-import random
 import re
 import uuid
 import unicodedata
-from datetime import datetime
 from decimal import Decimal
 from io import BytesIO
 from urllib.parse import quote
@@ -16,6 +14,7 @@ from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.utils.safestring import mark_safe
 from PIL import Image as PILImage
 from .cart import Cart, FREE_SHIPPING_ABOVE
