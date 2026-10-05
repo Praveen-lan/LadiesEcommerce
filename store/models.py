@@ -162,8 +162,75 @@ class Category(models.Model):
         return saree.image_source if saree else None
 
 
+class SubCategory(models.Model):
+    """A named style group inside a :class:`Category` collection.
+
+    Collections answer "which price band?", sub categories answer "which weave?"
+    — Silk Sarees, Cotton Sarees, Printed & Embroidery and so on. Every category
+    gets the same starter set from :data:`DEFAULT_SUBCATEGORIES` so the storefront
+    navigation is complete from the first load; staff can rename, reorder or add
+    their own from the admin.
+    """
+
+    category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="subcategories")
+    title = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=150, blank=True)
+    subtitle = models.CharField(max_length=200, blank=True)
+    image = models.ImageField(upload_to="categories/", blank=True, null=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Sub Category"
+        verbose_name_plural = "Sub Categories"
+        ordering = ["order", "id"]
+        constraints = [
+            models.UniqueConstraint(fields=("category", "slug"), name="unique_subcategory_slug_per_category"),
+        ]
+
+    def __str__(self):
+        return self.title
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from django.utils.text import slugify
+
+            base = slugify(self.title) or "sub-category"
+            slug = base
+            counter = 2
+            siblings = SubCategory.objects.filter(category_id=self.category_id).exclude(pk=self.pk)
+            while siblings.filter(slug=slug).exists():
+                slug = f"{base}-{counter}"
+                counter += 1
+            self.slug = slug
+        super().save(*args, **kwargs)
+
+    def get_absolute_url(self):
+        return reverse(
+            "store:subcategory_detail",
+            kwargs={"category_slug": self.category.slug, "slug": self.slug},
+        )
+
+    @property
+    def full_title(self):
+        return f"{self.category.title} - {self.title}"
+
+    @property
+    def banner_image(self):
+        if self.image:
+            return self.image.url
+        saree = self.sarees.filter(models.Q(image__gt="") | models.Q(image_url__gt="")).first()
+        return saree.image_source if saree else None
+
+
 class Saree(models.Model):
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="sarees")
+    subcategory = models.ForeignKey(
+        SubCategory,
+        on_delete=models.SET_NULL,
+        related_name="sarees",
+        blank=True,
+        null=True,
+    )
     name = models.CharField(max_length=150)
     slug = models.SlugField(max_length=200, blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -190,6 +257,15 @@ class Saree(models.Model):
             raise ValidationError({"image_url": "Upload an image or enter an image URL."})
         if self.image and self.image_url:
             raise ValidationError({"image_url": "Use either an uploaded image or an image URL, not both."})
+        if self.subcategory_id and self.category_id and self.subcategory.category_id != self.category_id:
+            raise ValidationError(
+                {
+                    "subcategory": (
+                        f'"{self.subcategory.title}" belongs to "{self.subcategory.category.title}", '
+                        f'not to "{self.category.title}". Pick a sub category from the selected category.'
+                    )
+                }
+            )
 
     @property
     def image_source(self):
@@ -346,3 +422,58 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f"{self.quantity} x {self.name}"
+
+
+# The starter sub categories every collection is seeded with, in menu order.
+# Each entry carries the words that identify it so existing sarees can be filed
+# automatically: the fabric field is checked first, then the name and description.
+DEFAULT_SUBCATEGORIES = (
+    (
+        "Silk Sarees",
+        "Pure mulberry, Kanjivaram, Banarasi and soft silk weaves with a luminous drape.",
+        ("silk", "kanjivaram", "kanchi", "banarasi", "patola", "mysore", "tussar", "dupatta", "mulberry"),
+    ),
+    (
+        "Cotton Sarees",
+        "Lightweight, breathable cottons and handspun khadi for everyday grace.",
+        ("cotton", "chanderi", "linen", "khadi", "tussar silk", "poplin", "canvas"),
+    ),
+    (
+        "Modern & Synthetic Fabric Sarees",
+        "Georgette, chiffon and crepe drapes with an easy, modern fall.",
+        ("georgette", "chiffon", "crepe", "satin", "organza", "polyester", "synthetic", "nylon", "rayon", "jacquard"),
+    ),
+    (
+        "Printed & Embroidery Sarees",
+        "Block prints, zari work and hand embroidery in rich, festive detail.",
+        ("print", "printed", "block", "embroid", "zari", "zardozi", "aari", "chikankari", "appliqu", "patchwork"),
+    ),
+    (
+        "Modern Fusion Sarees",
+        "Indo-western drapes that blend traditional motifs with a contemporary cut.",
+        ("fusion", "indo-western", "indo western", "contemporary", "modern", "ready-to-wear", "drape"),
+    ),
+)
+
+
+def guess_subcategory(saree, subcategories):
+    """Return the sub category that best fits ``saree``, or ``None``.
+
+    The fabric field is the strongest signal, so it is matched on its own before
+    the name and description are considered. The first matching sub category in
+    menu order wins, which keeps the guess stable when a saree mentions more than
+    one fabric (a "silk cotton" saree files under Silk Sarees).
+    """
+    fabric = (saree.fabric or "").lower()
+    haystack = " ".join(filter(None, (saree.name, saree.description))).lower()
+    if not fabric and not haystack:
+        return None
+    for subcategory in subcategories:
+        for keyword in subcategory["keywords"]:
+            if keyword in fabric:
+                return subcategory
+    for subcategory in subcategories:
+        for keyword in subcategory["keywords"]:
+            if keyword in haystack:
+                return subcategory
+    return None

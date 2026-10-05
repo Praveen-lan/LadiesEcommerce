@@ -20,8 +20,51 @@
     </div>
 </section>
 
+<section class="subcategory-nav">
+    <div class="container">
+        <div class="subcategory-nav-head">
+            <div>
+                <span class="section-tag">Shop by style</span>
+                <h2 class="section-title">Explore the collection</h2>
+            </div>
+            <a href="{% url 'store:catalog' %}" class="btn btn-outline-gold btn-sm rounded-pill">View All Sarees <i class="bi bi-arrow-right"></i></a>
+        </div>
+        <div class="row g-4 collection-style-grid">
+            {% for sub in subcategories %}
+            <div class="col-6 col-md-4 col-lg-3">
+                <a href="{% url 'store:subcategory_detail' category.slug sub.slug %}" class="collection-style-card">
+                    <div class="collection-style-image">
+                        {% if sub.banner_image %}
+                        <img src="{{ sub.banner_image }}" alt="{{ sub.title }}" loading="lazy">
+                        {% else %}
+                        <span class="collection-style-placeholder" aria-hidden="true"><i class="bi bi-flower1"></i></span>
+                        {% endif %}
+                        {% with saree_count=sub.sarees.count %}
+                        <span class="collection-style-count">{{ saree_count }} saree{{ saree_count|pluralize }}</span>
+                        {% endwith %}
+                    </div>
+                    <div class="collection-style-info">
+                        <h3>{{ sub.title }}</h3>
+                        {% if sub.subtitle %}<p>{{ sub.subtitle }}</p>{% endif %}
+                        <span class="collection-style-link">Explore style <i class="bi bi-arrow-right"></i></span>
+                    </div>
+                </a>
+            </div>
+            {% empty %}
+            <div class="col-12"><p class="collections-empty mb-0">No styles added to this collection yet.</p></div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
 <section class="catalog-section">
     <div class="container">
+        <div class="section-head">
+            <div>
+                <span class="section-tag">{{ category.title }}</span>
+                <h2 class="section-title">All sarees in this collection</h2>
+            </div>
+        </div>
         <div class="row g-4">
             {% for saree in sarees %}
             <div class="col-6 col-md-4 col-lg-3">

@@ -17,9 +17,9 @@ from .views import (
     remove_from_cart,
     robots_txt,
     saree_detail,
+    subcategory_detail,
     terms,
     update_cart,
-    verify_otp,
 )
 
 app_name = "store"
@@ -27,7 +27,6 @@ app_name = "store"
 urlpatterns = [
     path("robots.txt", robots_txt, name="robots"),
     path("", login_view, name="login"),
-    path("verify-otp/", verify_otp, name="verify_otp"),
     path("logout/", logout_view, name="logout"),
     path("profile/", profile, name="profile"),
     path("home/", home, name="home"),
@@ -39,6 +38,7 @@ urlpatterns = [
     path("terms-conditions/", terms, name="terms_conditions"),
     path("catalog/", catalog, name="catalog"),
     path("catalog/<slug:slug>/", category_detail, name="category_detail"),
+    path("collections/<slug:category_slug>/<slug:slug>/", subcategory_detail, name="subcategory_detail"),
     path("saree/<slug:slug>/", saree_detail, name="saree_detail"),
     path("cart/", cart_view, name="cart"),
     path("cart/add/", add_to_cart, name="add_to_cart"),

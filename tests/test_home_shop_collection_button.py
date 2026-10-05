@@ -58,10 +58,6 @@ def test_shop_collection_button_requires_login_then_lands_on_catalog(
         reverse("store:login"),
         {"name": "CTA Shopper", "phone": "9876543210"},
     )
-    client.post(
-        reverse("store:verify_otp"),
-        {"otp": client.session["dev_otp"]},
-    )
     response = client.get(href)
 
     assert response.status_code == 200

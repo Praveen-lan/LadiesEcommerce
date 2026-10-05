@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ seo_title }}{% endblock %}
+
+{% block content %}
+
+<section class="page-banner image-page-banner"{% if subcategory.banner_image %} style="background-image:url('{{ subcategory.banner_image }}');"{% endif %}>
+    <div class="image-page-overlay"></div>
+    <div class="container text-center py-5 position-relative">
+        <span class="section-tag">{{ category.tier|title }} Collection</span>
+        <h1 class="page-title">{{ subcategory.title }}</h1>
+        {% if subcategory.subtitle %}<p class="page-sub">{{ subcategory.subtitle }}</p>{% endif %}
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb justify-content-center">
+                <li class="breadcrumb-item"><a href="{% url 'store:home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'store:category_detail' category.slug %}">{{ category.title }}</a></li>
+                <li class="breadcrumb-item active" aria-current="page">{{ subcategory.title }}</li>
+            </ol>
+        </nav>
+    </div>
+</section>
+
+{% if subcategories|length > 1 %}
+<section class="subcategory-nav">
+    <div class="container">
+        <div class="subcategory-nav-head">
+            <span class="section-tag">Within {{ category.title }}</span>
+            <a href="{% url 'store:category_detail' category.slug %}" class="btn btn-outline-gold btn-sm rounded-pill">All {{ category.title }} <i class="bi bi-arrow-right"></i></a>
+        </div>
+        <div class="subcategory-chips">
+            {% for sub in subcategories %}
+            <a href="{% url 'store:subcategory_detail' category.slug sub.slug %}" class="subcategory-chip{% if sub.pk == subcategory.pk %} active{% endif %}">
+                {{ sub.title }}
+                {% if sub.sarees.count %}<span class="subcategory-chip-count">{{ sub.sarees.count }}</span>{% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endif %}
+
+<section class="catalog-section">
+    <div class="container">
+        <div class="section-head">
+            <div>
+                <span class="section-tag">{{ subcategory.title }}</span>
+                <h2 class="section-title">{{ sarees|length }} saree{{ sarees|length|pluralize }} in this style</h2>
+            </div>
+            <a href="{% url 'store:catalog' %}" class="btn btn-outline-gold rounded-pill">View All Sarees <i class="bi bi-arrow-right"></i></a>
+        </div>
+        <div class="row g-4">
+            {% for saree in sarees %}
+            <div class="col-6 col-md-4 col-lg-3">
+                {% include 'store/_saree_card.html' with saree=saree %}
+            </div>
+            {% empty %}
+            <div class="empty-state text-center py-5">
+                <i class="bi bi-box-seam display-1"></i>
+                <h4>No sarees in {{ subcategory.title }} yet</h4>
+                <p><a href="{% url 'store:category_detail' category.slug %}">Browse the full {{ category.title }} collection</a></p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+
+{% endblock %}

@@ -8,7 +8,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.core.validators import URLValidator
 from django.template import loader
 
-from .models import ContactMessage, SiteSettings
+from .models import ContactMessage, Saree, SiteSettings, SubCategory
 
 PHONE_RE = re.compile(r"[0-9]{10}")
 WHATSAPP_RE = re.compile(r"\d{10,15}")
@@ -17,6 +17,60 @@ MAP_URL_VALIDATOR = URLValidator(
     schemes=["http", "https"],
     message="Enter a valid map embed URL starting with http:// or https://.",
 )
+
+
+class SubCategoryChoiceWidget(forms.Select):
+    """Tags every option with the id of the category that owns it.
+
+    ``store/admin/subcategory-filter.js`` reads ``data-category`` so the sub
+    category list narrows to the collection picked above it, without a reload.
+    """
+
+    def __init__(self, attrs=None):
+        super().__init__(attrs)
+        self._category_by_id = None
+
+    def category_by_id(self):
+        """Map each option value to the category that owns it.
+
+        Built on first render, not at import time: this class is created while
+        Django loads the app registry, when there is no usable database yet.
+        """
+        if self._category_by_id is None:
+            queryset = getattr(self.choices, "queryset", None)
+            self._category_by_id = (
+                {obj.pk: obj.category_id for obj in queryset} if queryset is not None else {}
+            )
+        return self._category_by_id
+
+    def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
+        option = super().create_option(name, value, label, selected, index, subindex, attrs)
+        category_id = self.category_by_id().get(getattr(value, "value", value))
+        if category_id:
+            option["attrs"]["data-category"] = str(category_id)
+        return option
+
+
+class SubCategoryChoiceField(forms.ModelChoiceField):
+    """Disambiguates the style titles every category is seeded with."""
+
+    widget = SubCategoryChoiceWidget
+
+    def label_from_instance(self, obj):
+        return f"{obj.category.title} - {obj.title}"
+
+
+class SareeAdminForm(forms.ModelForm):
+    subcategory = SubCategoryChoiceField(
+        queryset=SubCategory.objects.select_related("category").order_by("category__title", "order", "id"),
+        required=False,
+        widget=SubCategoryChoiceWidget,
+        help_text="Only sub categories belonging to the selected category can be picked.",
+    )
+
+    class Meta:
+        model = Saree
+        fields = "__all__"
 
 
 class ContactForm(forms.ModelForm):
