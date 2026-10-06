@@ -9,7 +9,7 @@ from django.utils.html import format_html
 from django.utils.http import unquote
 from django import forms
 
-from .forms import SareeAdminForm, SiteSettingsForm
+from .forms import ProductIdMixin, SareeAdminForm, SiteSettingsForm
 from .models import (
     AboutPage,
     Banner,
@@ -385,7 +385,7 @@ class SEOAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
         return False
 
 
-class SareeInlineForm(forms.ModelForm):
+class SareeInlineForm(ProductIdMixin, forms.ModelForm):
     class Meta:
         model = Saree
         fields = (
@@ -405,7 +405,9 @@ class SareeInlineForm(forms.ModelForm):
         )
         widgets = {
             "image_url": forms.URLInput(attrs={"placeholder": "https://example.com/image.jpg"}),
-            "product_id": forms.TextInput(attrs={"placeholder": "e.g. SD-SRK-1001"}),
+            "product_id": forms.TextInput(
+                attrs={"placeholder": "e.g. SD-SRK-1001", "minlength": 4, "maxlength": 220}
+            ),
         }
 
     def __init__(self, *args, **kwargs):

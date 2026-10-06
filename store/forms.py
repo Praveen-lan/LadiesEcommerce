@@ -62,7 +62,34 @@ class SubCategoryChoiceField(forms.ModelChoiceField):
         return f"{obj.category.title} - {obj.title}"
 
 
-class SareeAdminForm(forms.ModelForm):
+PRODUCT_ID_MIN_LENGTH = 4
+PRODUCT_ID_MAX_LENGTH = 220
+PRODUCT_ID_REQUIRED = "Enter a product ID of 4 to 220 characters."
+PRODUCT_ID_TOO_SHORT = "Ensure this value has at least 4 characters (it has %s)."
+PRODUCT_ID_TOO_LONG = "Ensure this value has at most 220 characters (it has %s)."
+
+
+class ProductIdMixin:
+    """A product ID is mandatory for new products and 4 to 220 characters long.
+
+    Sarees created before the rule existed keep working: their blank ID stays
+    editable until staff enter one.
+    """
+
+    def clean_product_id(self):
+        value = (self.cleaned_data.get("product_id") or "").strip()
+        if not value:
+            if self.instance.pk:
+                return value
+            raise ValidationError(PRODUCT_ID_REQUIRED, code="required")
+        if len(value) < PRODUCT_ID_MIN_LENGTH:
+            raise ValidationError(PRODUCT_ID_TOO_SHORT % len(value), code="min_length")
+        if len(value) > PRODUCT_ID_MAX_LENGTH:
+            raise ValidationError(PRODUCT_ID_TOO_LONG % len(value), code="max_length")
+        return value
+
+
+class SareeAdminForm(ProductIdMixin, forms.ModelForm):
     subcategory = SubCategoryChoiceField(
         queryset=SubCategory.objects.select_related("category").order_by("category__title", "order", "id"),
         required=False,

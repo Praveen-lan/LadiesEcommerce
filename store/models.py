@@ -279,7 +279,12 @@ class Saree(models.Model):
         null=True,
     )
     name = models.CharField(max_length=150)
-    product_id = models.CharField(max_length=60, blank=True, db_index=True)
+    product_id = models.CharField(
+        max_length=220,
+        blank=True,
+        db_index=True,
+        help_text="Between 4 and 220 characters, for example SD-SRK-1001. Required for new products.",
+    )
     slug = models.SlugField(max_length=200, blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0.00"))])
     mrp = models.DecimalField(

@@ -918,6 +918,7 @@ class CategoryCreationAdminTests(TestCase):
             data.update(
                 {
                     f"{prefix}-0-name": saree["name"],
+                    f"{prefix}-0-product_id": saree.get("product_id", "NC-1001"),
                     f"{prefix}-0-price": saree["price"],
                     f"{prefix}-0-mrp": "",
                     f"{prefix}-0-fabric": "Silk",
@@ -953,7 +954,7 @@ class CategoryCreationAdminTests(TestCase):
         response = self._post_category(
             "New Silk Collection",
             Category.Tier.HIGH,
-            {"name": "New Collection Saree", "price": "1499.00", "image": image},
+            {"name": "New Collection Saree", "product_id": "NC-1001", "price": "1499.00", "image": image},
         )
 
         self.assertRedirects(response, reverse("admin:store_category_changelist"))
@@ -1005,6 +1006,7 @@ class CategoryCreationAdminTests(TestCase):
             f"{prefix}-TOTAL_FORMS": "1",
             f"{prefix}-INITIAL_FORMS": "0",
             f"{prefix}-0-name": "URL Image Saree",
+            f"{prefix}-0-product_id": "URL-1001",
             f"{prefix}-0-price": "1799.00",
             f"{prefix}-0-mrp": "1999.00",
             f"{prefix}-0-fabric": "Silk",
@@ -1213,7 +1215,7 @@ class SareeProductIdTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Saree.objects.get().product_id, "SD-SRK-1001")
 
-    def test_product_id_is_optional(self):
+    def test_product_id_is_required(self):
         response = self.client.post(
             reverse("admin:store_saree_add"),
             {
@@ -1229,8 +1231,106 @@ class SareeProductIdTests(TestCase):
             },
         )
 
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Saree.objects.count(), 0)
+        self.assertContains(response, "Enter a product ID of 4 to 220 characters.")
+
+    def test_product_id_needs_at_least_four_characters(self):
+        response = self.client.post(
+            reverse("admin:store_saree_add"),
+            {
+                "category": self.category.pk,
+                "subcategory": "",
+                "name": "Cotton Everyday Saree",
+                "product_id": "SD1",
+                "price": "1499.00",
+                "mrp": "",
+                "fabric": "Cotton",
+                "description": "A daily wear saree.",
+                "image_url": "https://images.example/cotton.jpg",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Saree.objects.count(), 0)
+        self.assertContains(response, "Ensure this value has at least 4 characters")
+
+    def test_product_id_accepts_four_characters_and_up_to_220(self):
+        base = {
+            "category": self.category.pk,
+            "subcategory": "",
+            "name": "Cotton Everyday Saree",
+            "price": "1499.00",
+            "mrp": "",
+            "fabric": "Cotton",
+            "description": "A daily wear saree.",
+            "image_url": "https://images.example/cotton.jpg",
+        }
+
+        self.client.post(reverse("admin:store_saree_add"), {**base, "product_id": "SD01"})
+        self.client.post(reverse("admin:store_saree_add"), {**base, "product_id": "X" * 220})
+        self.client.post(reverse("admin:store_saree_add"), {**base, "product_id": "X" * 221})
+
+        self.assertEqual(Saree.objects.count(), 2)
+        self.assertEqual(Saree.objects.get(pk=1).product_id, "SD01")
+        self.assertEqual(len(Saree.objects.get(pk=2).product_id), 220)
+
+    def test_an_existing_product_without_a_product_id_can_still_be_saved(self):
+        legacy = Saree.objects.create(
+            category=self.category,
+            name="Legacy Saree",
+            price=Decimal("999.00"),
+            image_url="https://images.example/legacy.jpg",
+        )
+        self.assertEqual(legacy.product_id, "")
+
+        response = self.client.post(
+            reverse("admin:store_saree_change", args=[legacy.pk]),
+            {
+                "category": self.category.pk,
+                "subcategory": "",
+                "name": "Legacy Saree",
+                "product_id": "",
+                "price": "1099.00",
+                "mrp": "",
+                "fabric": "Cotton",
+                "description": "",
+                "image_url": "https://images.example/legacy.jpg",
+                "_save": "Save",
+            },
+        )
+
+        legacy.refresh_from_db()
+
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(Saree.objects.get().product_id, "")
+        self.assertEqual(legacy.price, Decimal("1099.00"))
+
+    def test_a_product_id_of_one_character_cannot_be_added_to_an_existing_product(self):
+        legacy = Saree.objects.create(
+            category=self.category,
+            name="Legacy Saree",
+            price=Decimal("999.00"),
+            image_url="https://images.example/legacy.jpg",
+        )
+
+        response = self.client.post(
+            reverse("admin:store_saree_change", args=[legacy.pk]),
+            {
+                "category": self.category.pk,
+                "subcategory": "",
+                "name": "Legacy Saree",
+                "product_id": "AB",
+                "price": "1099.00",
+                "mrp": "",
+                "fabric": "Cotton",
+                "description": "",
+                "image_url": "https://images.example/legacy.jpg",
+                "_save": "Save",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ensure this value has at least 4 characters")
 
     def test_category_saree_inline_offers_a_product_id_box(self):
         response = self.client.get(reverse("admin:store_category_change", args=[self.category.pk]))
