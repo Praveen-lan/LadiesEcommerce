@@ -133,6 +133,15 @@ class ContactForm(forms.ModelForm):
     class Meta:
         model = ContactMessage
         fields = ("name", "email", "phone", "subject", "message")
+        error_messages = {
+            "name": {"required": "Please give correct username."},
+            "email": {
+                "required": "Please give correct email address.",
+                "invalid": "Please give correct email address.",
+            },
+            "subject": {"required": "Please give correct subject."},
+            "message": {"required": "Please give correct message."},
+        }
         widgets = {
             "name": forms.TextInput(
                 attrs={
@@ -171,6 +180,15 @@ class ContactForm(forms.ModelForm):
                 }
             ),
         }
+
+    def use_required_attribute(self):
+        """Never render the HTML ``required`` attribute.
+
+        Browsers would otherwise show their own native "This field is
+        required." bubble instead of the messages configured in
+        ``Meta.error_messages``.
+        """
+        return False
 
     def clean_phone(self):
         """Optional, but when given it must be a real 10 digit mobile number."""
@@ -246,5 +264,4 @@ class PasswordResetForm(auth_forms.PasswordResetForm):
             )
         message.send()
         return message
-
 

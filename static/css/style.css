@@ -34,12 +34,21 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .main-navbar .dropdown-item { border-radius: 8px; padding: 8px 12px; font-size: .92rem; color: var(--ink); }
 .main-navbar .dropdown-item:hover { background: var(--cream); color: var(--emerald); }
 .main-navbar .dropdown-item.active { background: var(--emerald); color: #fff; }
-.main-navbar .collections-menu { max-height: 70vh; overflow-y: auto; min-width: 262px; }
-.main-navbar .collections-parent { font-weight: 600; color: var(--emerald); border-bottom: 1px solid #eee9db; border-radius: 8px 8px 0 0; }
-.main-navbar .collections-parent i { color: var(--gold-dark); margin-right: 6px; }
+.main-navbar .collections-nav { position: relative; }
+.main-navbar .collections-menu { max-height: 75vh; overflow-y: auto; min-width: 280px; padding: 10px; }
+.main-navbar .collections-category { position: relative; }
+.main-navbar .collections-category-link {
+    display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%;
+    text-align: left; font-weight: 600; color: var(--emerald); background: transparent;
+    border: 0; border-bottom: 1px solid #eee9db;
+}
+.main-navbar .collections-category-link i { color: var(--gold-dark); font-size: .75rem; }
+.main-navbar .collection-submenu { display: none; position: static; margin: 0; padding: 4px 0 8px 12px; list-style: none; }
+.main-navbar .collections-category:hover > .collection-submenu,
+.main-navbar .collections-category.is-open > .collection-submenu { display: block; }
 .main-navbar .collections-child { padding-left: 30px; font-size: .88rem; color: var(--muted); }
 .main-navbar .collections-child::before { content: '\203A'; color: var(--gold); margin-right: 8px; }
-.main-navbar .collections-empty { font-size: .82rem; color: var(--muted); font-style: italic; }
+.main-navbar .collections-empty { display: block; padding: 8px 12px; font-size: .82rem; color: var(--muted); font-style: italic; }
 .btn-call { background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.35); white-space: nowrap; }
 .btn-call:hover { background: rgba(255,255,255,.24); color: #fff; }
 
@@ -138,6 +147,7 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .saree-img-wrap img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s; }
 .saree-card:hover .saree-img-wrap img { transform: scale(1.06); }
 .discount-badge { position: absolute; top: 10px; left: 10px; background: linear-gradient(135deg, var(--emerald), #1d8a5b); color: #fff; font-size: .75rem; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
+.saree-product-id { position: absolute; bottom: 10px; left: 10px; z-index: 1; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 9px; border-radius: 5px; background: rgba(6, 43, 30, .82); color: #fff; font-size: .72rem; font-weight: 600; letter-spacing: .02em; }
 .card-actions { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; opacity: 0; transition: opacity .25s; }
 .saree-card:hover .card-actions { opacity: 1; }
 .card-actions span { width: 34px; height: 34px; background: #fff; color: var(--emerald); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: .95rem; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,.12); transition: all .2s; }
@@ -500,6 +510,8 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 @media (max-width: 991.98px) {
     .main-navbar .nav-call { display: none; }
     .nav-search { width: 100%; margin-bottom: 10px; }
+    .main-navbar .collections-menu { max-height: 55vh; }
+    .main-navbar .collections-category-link { border-bottom: 0; }
     .hero .carousel-item { height: 48vh; }
     .hero-content { left: 6%; right: 6%; }
     .about-feature-card, .about-image-card img, .about-image-placeholder { min-height: 0; }

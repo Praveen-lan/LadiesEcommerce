@@ -1,6 +1,9 @@
 <div class="saree-card">
     <a href="{% url 'store:saree_detail' saree.slug %}" class="saree-img-wrap">
         <img src="{{ saree.image_source }}" alt="{{ saree.name }}" loading="lazy">
+        {% if saree.product_id %}
+        <span class="saree-product-id">ID: {{ saree.product_id }}</span>
+        {% endif %}
         <div class="card-actions">
             <span class="wishlist" title="Add to wishlist"><i class="bi bi-heart"></i></span>
             <span class="quick-view" title="View details"><i class="bi bi-eye"></i></span>

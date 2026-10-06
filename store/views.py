@@ -11,7 +11,7 @@ from django.contrib import messages
 from django.contrib.auth import views as auth_views
 from django.core.files.base import ContentFile
 from django.db.models import Q
-from django.http import Http404, HttpResponse
+from django.http import Http404, HttpResponse, HttpResponseNotFound
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -42,6 +42,19 @@ PROFILE_LOGO_SIZE = (300, 300)
 PHONE_ERROR = "Please give correct number."
 
 CHECKOUT_PAYMENT_METHODS = ((Order.PaymentMethod.QR, Order.PaymentMethod.QR.label),)
+
+# Used when staff have not uploaded a QR image or set a UPI id in the admin, so
+# the payment method section always shows a scannable code out of the box.
+DEFAULT_UPI_ID = "swathidesigners@upi"
+DEFAULT_PAYEE_NAME = "Swathi Designers"
+
+NAVIGATION_CATEGORY_TITLES = (
+    "Premium Collection",
+    "Luxury Collection",
+    "Base Collection",
+    "Everyday Comfort",
+    "Budget Collection",
+)
 
 
 def _absolute_url(request, value):
@@ -130,6 +143,12 @@ def _base_context(request=None):
     site = SiteSettings.objects.first()
     seo = SEO.current() or SEO()
     shipping_fee, free_shipping_above = shipping_rules()
+    navigation_categories_by_title = {
+        category.title: category
+        for category in Category.objects.filter(title__in=NAVIGATION_CATEGORY_TITLES)
+        .prefetch_related("subcategories")
+        .order_by("id")
+    }
     cart_count = 0
     customer = None
     if request is not None:
@@ -143,6 +162,11 @@ def _base_context(request=None):
     context = {
         "site": site,
         "categories": Category.objects.prefetch_related("subcategories"),
+        "navigation_categories": [
+            navigation_categories_by_title[title]
+            for title in NAVIGATION_CATEGORY_TITLES
+            if title in navigation_categories_by_title
+        ],
         "cart_count": cart_count,
         "customer": customer,
         "shipping_fee": shipping_fee,
@@ -164,6 +188,39 @@ def _contact_map_url(site):
         return site.map_embed_url
     address = site.address.strip() if site and site.address else "Chennai, Tamil Nadu, India"
     return f"https://www.google.com/maps?q={quote(address)}&output=embed"
+
+
+def _payee_name(site):
+    """The name a UPI app shows next to the payee once the QR is scanned."""
+    name = site.shop_name.strip() if site and site.shop_name else ""
+    return name or DEFAULT_PAYEE_NAME
+
+
+def _upi_id(site):
+    """The UPI handle the payment QR collects into."""
+    code = PaymentQR.current()
+    configured = (code.upi_id if code else "").strip()
+    return configured or DEFAULT_UPI_ID
+
+
+def _upi_uri(site):
+    """Build the ``upi://pay`` payload encoded into the payment QR code."""
+    return f"upi://pay?pa={quote(_upi_id(site))}&pn={quote(_payee_name(site))}&cu=INR"
+
+
+def _payment_qr_context(site):
+    """Template context for the payment method section.
+
+    Staff can upload their own QR image in the admin; when they have not, we
+    fall back to the generated code so the section is never empty.
+    """
+    code = PaymentQR.current()
+    return {
+        "payment_qr": code,
+        "payment_qr_url": code.image.url if code and code.image else reverse("store:generate_qr"),
+        "payment_upi_id": _upi_id(site),
+        "payment_payee_name": _payee_name(site),
+    }
 
 
 def robots_txt(request):
@@ -387,7 +444,7 @@ def about(request):
 
 def contact(request):
     context = _base_context(request)
-    form = ContactForm(request.POST or None)
+    form = ContactForm(request.POST if request.method == "POST" else None)
     if request.method == "POST" and form.is_valid():
         form.save()
         messages.success(request, "Thank you. Your enquiry has been received.")
@@ -684,9 +741,9 @@ def checkout(request):
                         "pincode": pincode,
                         "payment_reference": request.POST.get("payment_reference", ""),
                     },
-                    "payment_qr": PaymentQR.current(),
                 }
             )
+            context.update(_payment_qr_context(context["site"]))
             return render(request, "store/checkout.html", context)
 
         valid_payment = [c[0] for c in CHECKOUT_PAYMENT_METHODS]
@@ -739,7 +796,7 @@ def checkout(request):
     context["cart_items"] = items
     context["totals"] = totals
     context["payment_methods"] = CHECKOUT_PAYMENT_METHODS
-    context["payment_qr"] = PaymentQR.current()
+    context.update(_payment_qr_context(context["site"]))
     return render(request, "store/checkout.html", context)
 
 
@@ -782,7 +839,7 @@ def order_success(request, order_id):
     order = get_object_or_404(Order, order_id=order_id)
     context = _base_context(request)
     context["order"] = order
-    context["payment_qr"] = PaymentQR.current()
+    context.update(_payment_qr_context(context["site"]))
     proof_form = PaymentProofForm(initial={"order_id": order.order_id})
     context["proof_form"] = proof_form
     context["proofs"] = order.payment_proofs.all()
@@ -847,27 +904,28 @@ def payment_verification(request, order_id=None):
         form = PaymentProofForm(initial=initial)
 
     context = _base_context(request)
-    context.update({"form": form, "order": order, "payment_qr": PaymentQR.current()})
+    context.update({"form": form, "order": order})
+    context.update(_payment_qr_context(context["site"]))
     return render(request, "store/payment_verification.html", context)
 
 
 def generate_qr(request):
-    mail = request.GET.get("upi", "")
-    if not mail:
-        code = PaymentQR.current()
-        mail = (code.upi_id if code else "") or "sareeelegance@upi"
+    site = SiteSettings.objects.first()
+    payload = _upi_uri(site)
     try:
         import segno
 
-        qr = segno.make_qr(f"upi://pay?pa={mail}&pn=Swathi%20Designers")
-
-        response = HttpResponse(content_type="image/png")
-        qr.save(response, kind="png", scale=8, border=2)
-        return response
+        qr = segno.make_qr(payload, error="m")
     except Exception:
-        from django.http import HttpResponseNotFound
-
+        logger.exception("Could not build the payment QR for %s", payload)
         return HttpResponseNotFound("QR unavailable")
+
+    response = HttpResponse(content_type="image/png")
+    # The payload only changes when staff edit the UPI id or shop name, so the
+    # browser can keep serving the same image between the two edits.
+    response["Cache-Control"] = "private, max-age=3600"
+    qr.save(response, kind="png", scale=8, border=2)
+    return response
 
 
 def new_order_id():

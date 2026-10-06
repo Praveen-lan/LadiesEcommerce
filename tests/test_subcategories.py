@@ -156,23 +156,27 @@ def test_the_starter_catalogue_covers_the_five_expected_styles(db):
 
 
 @pytest.mark.django_db
-def test_nav_dropdown_lists_collections_only(signed_in, silk_category, silk_subcategory, cotton_subcategory):
-    """The dropdown is one level deep: collections link out, sub categories do not.
+def test_nav_dropdown_has_five_collections_with_nested_subcategory_links(signed_in):
+    response = signed_in.get(reverse("store:home"))
+    categories = response.context["navigation_categories"]
+    expected_titles = [
+        "Premium Collection",
+        "Luxury Collection",
+        "Base Collection",
+        "Everyday Comfort",
+        "Budget Collection",
+    ]
 
-    Sub categories are reached from the collection page instead, so a shopper
-    never sees the whole 5xN tree crammed into the nav.
-    """
-    content = signed_in.get(reverse("store:home")).content.decode()
-    # Scope to the dropdown: sub category names are legitimate page copy elsewhere
-    # on the page (SEO keywords, collection blurbs), just not navigation.
-    menu = content.split('class="dropdown-menu collections-menu"', 1)[1].split("</ul>", 1)[0]
+    assert [category.title for category in categories] == expected_titles
+    assert all(category.subcategories.count() == 5 for category in categories)
 
-    assert silk_category.title in menu
-    assert reverse("store:category_detail", args=[silk_category.slug]) in menu
-
-    assert silk_subcategory.title not in menu
-    assert cotton_subcategory.title not in menu
-    assert reverse("store:subcategory_detail", args=[silk_category.slug, silk_subcategory.slug]) not in menu
+    content = response.content.decode()
+    assert 'class="dropdown-menu collections-menu"' in content
+    assert 'data-bs-auto-close="outside"' in content
+    for category in categories:
+        assert f'aria-controls="collection-submenu-{category.slug}"' in content
+        for subcategory in category.subcategories.all():
+            assert subcategory.get_absolute_url() in content
 
 
 @pytest.mark.django_db
@@ -251,11 +255,14 @@ def test_subcategory_page_404s_when_the_style_belongs_to_another_collection(
 
 
 @pytest.mark.django_db
-def test_empty_subcategory_page_points_back_at_the_collection(signed_in, silk_category, silk_subcategory):
+def test_empty_subcategory_page_shows_no_collection_browse_message(signed_in, silk_subcategory):
     response = signed_in.get(silk_subcategory.get_absolute_url())
+    content = response.content.decode()
 
     assert response.status_code == 200
-    assert reverse("store:category_detail", args=[silk_category.slug]) in response.content.decode()
+    assert "Browse the full" not in content
+    assert "No sarees in" not in content
+    assert 'class="empty-state' not in content
 
 
 @pytest.mark.django_db
@@ -291,6 +298,24 @@ def test_collection_page_displays_subcategories_as_image_cards_and_keeps_all_sar
     assert cotton_subcategory.title in content
     assert "All sarees in this collection" in content
     assert "Kanjivaram Antique Gold" in content
+
+
+@pytest.mark.django_db
+def test_collection_saree_card_shows_admin_product_id_on_image(signed_in, silk_category, silk_subcategory):
+    Saree.objects.create(
+        category=silk_category,
+        subcategory=silk_subcategory,
+        name="Product ID Saree",
+        product_id="SD-SRK-1001",
+        price="2999.00",
+        image_url="https://images.example/product-id-saree.jpg",
+    )
+
+    response = signed_in.get(reverse("store:category_detail", args=[silk_category.slug]))
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert '<span class="saree-product-id">ID: SD-SRK-1001</span>' in content
 
 
 @pytest.mark.django_db
