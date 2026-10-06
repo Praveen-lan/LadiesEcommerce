@@ -23,6 +23,7 @@
                         <div class="flex-grow-1">
                             <h6 class="cart-item-name mb-1">{{ item.saree.name }}</h6>
                             <div class="cart-item-meta">{{ item.saree.fabric|default:"Saree" }} | {{ item.saree.category.title }}</div>
+                            <div class="cart-item-meta">Delivery: &#8377; {{ item.delivery_charge }} | GST ({{ item.gst_percent }}%): &#8377; {{ item.gst_amount }}</div>
                             <div class="d-flex align-items-center gap-2 mt-2">
                                 <div class="qty-control">
                                     <form action="{% url 'store:update_cart' item.saree.id %}" method="post">
@@ -57,7 +58,7 @@
                     <div class="sum-row"><span>Delivery</span>
                         <span>{% if totals.delivery > 0 %}&#8377; {{ totals.delivery }}{% else %}<span class="text-success">Free</span>{% endif %}</span>
                     </div>
-                    <div class="sum-row"><span>GST (5%)</span><span>&#8377; {{ totals.gst }}</span></div>
+                    <div class="sum-row"><span>GST</span><span>&#8377; {{ totals.gst }}</span></div>
                     {% if totals.free_shipping_message %}
                     <div class="sum-row text-success"><span><i class="bi bi-truck"></i></span><span>Add &#8377; {{ totals.amount_to_free_shipping }} more for free shipping</span></div>
                     {% endif %}

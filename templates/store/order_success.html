@@ -61,7 +61,7 @@
                         <i class="bi bi-file-earmark-image"></i>
                         <div>
                             <strong>Payment Verification</strong>
-                            <span class="small text-muted d-block">Paid by QR? Upload the screenshot here for us to verify.</span>
+                            <span class="small text-muted d-block">Upload the payment screenshot here for us to verify.</span>
                         </div>
                     </div>
 
@@ -71,11 +71,7 @@
                                 <li class="mb-2">
                                     <i class="bi bi-check-circle-fill text-success me-1"></i>
                                     Screenshot received on {{ proof.submitted_at|date:"d M Y, h:i A" }}
-                                    {% if order.payment_status == 'paid' or proof.status == 'verified' %}
-                                        <span class="badge bg-success ms-1">Payment done</span>
-                                    {% elif proof.status == 'rejected' %}
-                                        <span class="badge bg-danger ms-1">Rejected</span>
-                                    {% endif %}
+                                    <span class="badge bg-success ms-1">Payment done</span>
                                     {% if proof.reference %}<span class="text-muted ms-1">Ref: {{ proof.reference }}</span>{% endif %}
                                 </li>
                             {% endfor %}
@@ -88,7 +84,7 @@
                                 <div class="col-md-6">
                                     <label class="form-label small fw-semibold" for="proof_reference">UPI reference / UTR (optional)</label>
                                     <input type="text" class="form-control" id="proof_reference" name="reference"
-                                           value="{{ proof_form.reference.value|default:'' }}" placeholder="e.g. 425781230001">
+                                           value="{{ proof_form.reference.value|default:'' }}" placeholder="Ex: 425781230001">
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label small fw-semibold" for="proof_screenshot">Payment screenshot</label>

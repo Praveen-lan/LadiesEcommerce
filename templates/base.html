@@ -168,9 +168,14 @@
                         <li><i class="bi bi-envelope-fill"></i> <a href="mailto:{{ site.email }}">{{ site.email }}</a></li>
                         {% endif %}
                         {% if site.address %}
-                        <li><i class="bi bi-geo-alt-fill"></i> {{ site.address }}</li>
+                        <li><i class="bi bi-geo-alt-fill"></i> <a href="{{ contact_map_link_url }}" target="_blank" rel="noopener">{{ site.address }}</a></li>
                         {% endif %}
                     </ul>
+                    {% if contact_map_url %}
+                    <div class="footer-map-frame">
+                        <iframe src="{{ contact_map_url }}" title="Swathi Designers location map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
+                    </div>
+                    {% endif %}
                 </div>
             </div>
             <div class="footer-bottom">
@@ -181,8 +186,8 @@
 
     {% if site.whatsapp %}
     <a href="https://wa.me/{{ site.whatsapp }}" target="_blank" rel="noopener" class="whatsapp-float" aria-label="Chat with us on WhatsApp">
-        <span class="whatsapp-float-label">{{ site.whatsapp }}</span>
         <span class="whatsapp-float-icon"><i class="bi bi-whatsapp"></i></span>
+        <span class="whatsapp-float-label">{{ site.whatsapp }}</span>
     </a>
     {% endif %}
 

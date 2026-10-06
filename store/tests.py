@@ -20,6 +20,7 @@ from .models import (
     Customer,
     Order,
     OrderItem,
+    LoginPage,
     PaymentProof,
     PaymentQR,
     Saree,
@@ -153,10 +154,10 @@ class StorePageTests(TestCase):
                 )
 
                 self.assertEqual(response.status_code, 200)
-                self.assertContains(response, "Please give correct number.")
+                self.assertContains(response, "Please enter a valid 10-digit mobile number starting with 6-9.")
                 self.assertEqual(ContactMessage.objects.count(), 0)
 
-    def test_contact_page_phone_is_optional(self):
+    def test_contact_page_requires_a_valid_mobile_number(self):
         response = self.client.post(
             reverse("store:contact"),
             {
@@ -168,8 +169,9 @@ class StorePageTests(TestCase):
             },
         )
 
-        self.assertRedirects(response, reverse("store:contact"))
-        self.assertEqual(ContactMessage.objects.count(), 1)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Please enter phone number.")
+        self.assertEqual(ContactMessage.objects.count(), 0)
 
     def test_terms_page_uses_shared_navigation(self):
         response = self.client.get(reverse("store:terms"))
@@ -281,6 +283,12 @@ class CheckoutNameValidationTests(TestCase):
                 "payment_method": "qr",
             },
         )
+
+    def test_checkout_shows_only_secure_payment_reassurance(self):
+        response = self.client.get(self.checkout_url)
+
+        self.assertContains(response, "100% secure payments")
+        self.assertNotContains(response, "Easy 7-day returns")
 
     def test_numeric_or_symbol_only_names_are_rejected_without_creating_orders(self):
         for name in ("123445567890", "@#$%^//"):
@@ -408,6 +416,19 @@ class CustomerLoginIdentityTests(TestCase):
         self.assertContains(response, "Welcome to Swathi Designers")
         self.assertNotIn("otp", content.lower())
 
+    def test_login_page_left_panel_uses_admin_managed_copy(self):
+        LoginPage.objects.create(
+            heading="Find Your Signature Weave",
+            description="Explore silk and handloom pieces selected for every occasion.",
+            tagline="Crafted for your celebrations",
+        )
+
+        response = self.client.get(reverse("store:login"))
+
+        self.assertContains(response, "Find Your Signature Weave")
+        self.assertContains(response, "Explore silk and handloom pieces selected for every occasion.")
+        self.assertContains(response, "Crafted for your celebrations")
+
     def test_invalid_phone_is_rejected_without_signing_in(self):
         for phone in ("12345", "1234567890", "5876543210", "abcdefghij"):
             with self.subTest(phone=phone):
@@ -421,6 +442,28 @@ class CustomerLoginIdentityTests(TestCase):
                 self.assertContains(response, "Please give correct number.")
                 self.assertNotIn("customer_id", self.client.session)
 
+
+class LoginPageAdminTests(TestCase):
+    def setUp(self):
+        admin_user = User.objects.create_superuser("logincontent", "login@example.com", "pw12345!")
+        self.client.force_login(admin_user)
+
+    def test_login_page_content_is_editable_from_admin(self):
+        response = self.client.post(
+            reverse("admin:store_loginpage_add"),
+            {
+                "heading": "A New Login Headline",
+                "description": "A new login description.",
+                "tagline": "A new login tagline",
+                "_save": "Save",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        page = LoginPage.objects.get()
+        self.assertEqual(page.heading, "A New Login Headline")
+        self.assertEqual(page.description, "A new login description.")
+        self.assertEqual(page.tagline, "A new login tagline")
 
 class AdminPasswordResetTests(TestCase):
     def test_admin_login_displays_a_working_password_reset_link(self):
@@ -518,6 +561,23 @@ class SiteSettingsAdminValidationTests(TestCase):
         self.assertEqual(self.settings_obj.facebook, "")
         self.assertEqual(self.settings_obj.free_shipping_above, Decimal("999.00"))
         self.assertEqual(self.settings_obj.shipping_fee, Decimal("79.00"))
+
+    def test_iframe_embed_code_is_saved_and_used_on_contact_page_and_footer(self):
+        embed_code = '<iframe src="https://maps.example/embed/shop" width="600" height="450"></iframe>'
+        response = self._post(map_embed_url=embed_code)
+
+        self.assertRedirects(response, reverse("admin:store_sitesettings_changelist"))
+        self.settings_obj.refresh_from_db()
+        self.assertEqual(self.settings_obj.map_embed_url, embed_code)
+
+        customer = Customer.objects.create(name="Map Shopper", phone="9876543210")
+        session = self.client.session
+        session["customer_id"] = customer.pk
+        session.save()
+        page = self.client.get(reverse("store:contact"))
+        content = page.content.decode()
+        self.assertGreaterEqual(content.count('src="https://maps.example/embed/shop"'), 2)
+        self.assertGreaterEqual(content.count('href="https://maps.example/embed/shop"'), 2)
 
     def test_whatsapp_is_normalised_to_digits(self):
         self._post(whatsapp="+91 98765-43210")
@@ -1052,6 +1112,7 @@ class SEOAdminTests(TestCase):
         )
         self.assertNotIn("robots_extra", form.fields)
         self.assertEqual(list(response.context["adminform"].readonly_fields), ["updated_at"])
+        self.assertTrue(all(field.required for field in form.fields.values()))
 
     def test_seo_form_shows_the_requested_labels(self):
         seo = SEO.objects.create(site_name="Swathi Designers")
@@ -1072,6 +1133,29 @@ class SEOAdminTests(TestCase):
             with self.subTest(label=label):
                 self.assertIn(label, content)
         self.assertNotIn("Robots extra", content)
+        self.assertIn("<strong>Page name</strong>", content)
+
+    def test_empty_seo_details_are_rejected(self):
+        seo = SEO.objects.create(site_name="Swathi Designers")
+
+        response = self.client.post(
+            reverse("admin:store_seo_change", args=[seo.pk]),
+            {
+                "page_name": "",
+                "site_name": "",
+                "default_title": "",
+                "default_page_description": "",
+                "meta_title": "",
+                "default_description": "",
+                "default_keywords": "",
+                "google_site_verification": "",
+            },
+        )
+
+        form = response.context["adminform"].form
+        for field in form.fields:
+            with self.subTest(field=field):
+                self.assertIn(field, form.errors)
 
     def test_updated_time_is_filled_in_automatically_on_save(self):
         seo = SEO.objects.create(site_name="Swathi Designers")
@@ -1195,6 +1279,23 @@ class SareeProductIdTests(TestCase):
 
         self.assertIn("product_id", form.fields)
         self.assertContains(response, "Product id")
+        self.assertIn("delivery_charge", form.fields)
+        self.assertIn("gst_percent", form.fields)
+
+    def test_saree_gst_percentage_must_be_between_one_and_one_hundred(self):
+        for percent in ("0.99", "100.01"):
+            with self.subTest(percent=percent):
+                saree = Saree(
+                    category=self.category,
+                    name="GST Validation Saree",
+                    price="1000.00",
+                    gst_percent=percent,
+                    image_url="https://images.example/saree.jpg",
+                )
+                with self.assertRaises(ValidationError):
+                    saree.full_clean()
+                with self.assertRaises(ValidationError):
+                    saree.save()
 
     def test_product_id_is_saved_with_the_saree(self):
         response = self.client.post(
@@ -1336,7 +1437,10 @@ class SareeProductIdTests(TestCase):
         response = self.client.get(reverse("admin:store_category_change", args=[self.category.pk]))
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("product_id", inline_formset(response, "sarees").empty_form.fields)
+        fields = inline_formset(response, "sarees").empty_form.fields
+        self.assertIn("product_id", fields)
+        self.assertIn("delivery_charge", fields)
+        self.assertIn("gst_percent", fields)
 
 
 class BlankAddFormTests(TestCase):
@@ -1369,6 +1473,15 @@ class BlankAddFormTests(TestCase):
                 checked += 1
                 with self.subTest(model=name, field=field_name):
                     self.assertEqual(field.initial, "")
+        self.assertGreater(checked, 20)
+
+    def test_add_page_field_labels_are_bold(self):
+        checked = 0
+        for name, response in self._add_pages():
+            for field_name, field in response.context["adminform"].form.fields.items():
+                checked += 1
+                with self.subTest(model=name, field=field_name):
+                    self.assertIn("<strong>", str(field.label))
         self.assertGreater(checked, 20)
 
     def test_required_controls_keep_their_defaults(self):
@@ -1429,6 +1542,13 @@ class SubCategoryInlineSareeTests(TestCase):
         saree = Saree.objects.create(name="Kanjivaram Silk", subcategory=self.subcategory, price="2000")
 
         self.assertEqual(saree.category_id, self.category.pk)
+
+    def test_subcategory_inline_offers_delivery_and_gst_fields(self):
+        response = self.client.get(reverse("admin:store_subcategory_change", args=[self.subcategory.pk]))
+        fields = inline_formset(response, "sarees").empty_form.fields
+
+        self.assertIn("delivery_charge", fields)
+        self.assertIn("gst_percent", fields)
 
     def test_adding_a_saree_on_the_subcategory_change_page_saves(self):
         response = self.client.post(
@@ -1581,6 +1701,8 @@ class SareeCardDetailsTests(TestCase):
 
         self.assertIn("Card Saree", card)
         self.assertIn("1000.00", card)
+        self.assertIn("1250.00", card)
+        self.assertIn("<del>&#8377; 1250.00</del>", card)
 
     def test_the_card_hides_the_details_that_belong_on_the_product_page(self):
         content = self.client.get(reverse("store:category_detail", args=[self.category.slug])).content.decode()
@@ -1597,9 +1719,11 @@ class SareeCardDetailsTests(TestCase):
 
         self.assertIn("Silk", content)
         self.assertIn("6.3 metres (with blouse piece)", content)
-        self.assertIn("In Stock", content)
-        self.assertIn("Ready to ship in 24 hrs", content)
-        self.assertIn("Free above", content)
+        self.assertIn("Fabric", content)
+        self.assertIn("Length", content)
+        self.assertNotIn("In Stock", content)
+        self.assertNotIn("Dispatch", content)
+        self.assertNotIn("Delivery", content)
 
     def test_the_delivery_limit_is_read_from_site_settings(self):
         site = SiteSettings.objects.first() or SiteSettings.objects.create(shop_name="Swathi Designers")
@@ -1608,8 +1732,7 @@ class SareeCardDetailsTests(TestCase):
 
         content = self.client.get(reverse("store:saree_detail", args=[self.saree.slug])).content.decode()
 
-        self.assertIn("1500.00", content)
-        self.assertNotIn("999.00", content)
+        self.assertNotIn("Free above", content)
 
     def test_the_cart_prompt_uses_the_configured_remaining_amount(self):
         site = SiteSettings.objects.create(
@@ -1632,13 +1755,16 @@ class SareeCardDetailsTests(TestCase):
         self.assertEqual(self.saree.card_length, "6.3 metres (with blouse piece)")
         self.assertEqual(self.saree.card_dispatch_note, "Ready to ship in 24 hrs")
 
-    def test_an_out_of_stock_saree_says_so_on_the_product_page(self):
+    def test_product_page_hides_stock_delivery_and_dispatch_details(self):
         self.saree.in_stock = False
         self.saree.save()
 
         content = self.client.get(reverse("store:saree_detail", args=[self.saree.slug])).content.decode()
 
-        self.assertIn("Out of Stock", content)
+        self.assertNotIn("In Stock", content)
+        self.assertNotIn("Out of Stock", content)
+        self.assertNotIn("Dispatch", content)
+        self.assertNotIn("Delivery", content)
 
     def test_an_out_of_stock_saree_cannot_be_added_to_the_cart(self):
         self.saree.in_stock = False
@@ -1675,6 +1801,43 @@ class CartUsesTheDiscountedAmountTests(TestCase):
         self.assertEqual(item["final_amount"], Decimal("800.00"))
         self.assertEqual(item["line_total"], Decimal("1600.00"))
         self.assertEqual(cart.totals()["subtotal"], Decimal("1600.00"))
+
+    def test_product_delivery_and_gst_are_shown_and_snapshotted_at_checkout(self):
+        self.saree.delivery_charge = Decimal("25.00")
+        self.saree.gst_percent = Decimal("18.00")
+        self.saree.save()
+        customer = Customer.objects.create(name="Charge Shopper", phone="9876543210")
+        session = self.client.session
+        session["customer_id"] = customer.pk
+        session["cart"] = {str(self.saree.pk): 1}
+        session.save()
+
+        checkout = self.client.get(reverse("store:checkout"))
+        totals = checkout.context["totals"]
+        self.assertEqual(totals["delivery"], Decimal("104.00"))
+        self.assertEqual(totals["gst"], Decimal("144.00"))
+        self.assertContains(checkout, "GST (18.00%): &#8377; 144.00")
+
+        response = self.client.post(
+            reverse("store:checkout"),
+            {
+                "name": customer.name,
+                "phone": customer.phone,
+                "email": "",
+                "address": "18 Heritage Street",
+                "city": "Chennai",
+                "state": "Tamil Nadu",
+                "pincode": "600040",
+                "payment_method": "qr",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        order = Order.objects.get()
+        order_item = order.items.get()
+        self.assertEqual(order_item.delivery_charge, Decimal("25.00"))
+        self.assertEqual(order_item.gst_percent, Decimal("18.00"))
+        self.assertEqual(order.total, Decimal("1048.00"))
 
     def test_checkout_and_order_confirmation_use_the_discounted_snapshot(self):
         customer = Customer.objects.create(name="Discount Shopper", phone="9876543210")
@@ -1723,6 +1886,10 @@ class FloatingWhatsAppButtonTests(TestCase):
 
         self.assertIn("whatsapp-float", content)
         self.assertIn("https://wa.me/919876543210", content)
+        self.assertLess(
+            content.index('class="whatsapp-float-icon"'),
+            content.index('class="whatsapp-float-label"'),
+        )
 
     def test_the_floating_button_is_absent_without_a_whatsapp_number(self):
         content = self.client.get(reverse("store:home")).content.decode()

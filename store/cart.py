@@ -6,6 +6,7 @@ from .pricing import (
     GST_RATE,
     SHIPPING_FEE,
     SHIPPING_FEE_ABOVE,
+    gst_amount,
     to_amount,
 )
 
@@ -117,6 +118,9 @@ class Cart:
                     "quantity": qty,
                     "final_amount": saree.final_amount,
                     "line_total": saree.final_amount * qty,
+                    "delivery_charge": saree.delivery_charge * qty,
+                    "gst_percent": saree.gst_percent,
+                    "gst_amount": gst_amount(saree.final_amount * qty, saree.gst_percent),
                 }
             )
         return result
@@ -125,10 +129,10 @@ class Cart:
         items = self.items()
         subtotal = sum((i["line_total"] for i in items), Decimal("0"))
         fee, limit = shipping_rules()
-        delivery = Decimal("0")
-        if 0 < subtotal < limit:
-            delivery = fee
-        gst = (subtotal * GST_RATE).quantize(Decimal("0.01"))
+        base_delivery = fee if 0 < subtotal < limit else Decimal("0.00")
+        product_delivery = sum((item["delivery_charge"] for item in items), Decimal("0.00"))
+        delivery = base_delivery + product_delivery
+        gst = sum((item["gst_amount"] for item in items), Decimal("0.00"))
         total = (subtotal + delivery + gst).quantize(Decimal("0.01"))
         return {
             "subtotal": subtotal,
@@ -136,6 +140,8 @@ class Cart:
             "gst": gst,
             "total": total,
             "delivery_fee": fee,
+            "base_delivery": base_delivery,
+            "product_delivery": product_delivery,
             "free_shipping_above": limit,
             "amount_to_free_shipping": max(limit - subtotal, Decimal("0.00")),
             "free_shipping_message": subtotal > 0 and subtotal < limit,

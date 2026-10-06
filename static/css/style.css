@@ -144,8 +144,7 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .saree-card { width: 100%; background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid #e4dec6; transition: transform .25s, box-shadow .25s; display: flex; flex-direction: column; }
 .saree-card:hover { transform: translateY(-6px); box-shadow: 0 18px 34px rgba(6,43,30,.12); }
 .saree-img-wrap { position: relative; display: block; aspect-ratio: 3 / 4; overflow: hidden; background: #efeadd; text-decoration: none; }
-.saree-img-wrap img { width: 100%; height: 100%; object-fit: cover; transition: transform .5s; }
-.saree-card:hover .saree-img-wrap img { transform: scale(1.06); }
+.saree-img-wrap img { width: 100%; height: 100%; object-fit: fill; }
 .discount-badge { position: absolute; top: 10px; left: 10px; background: linear-gradient(135deg, var(--emerald), #1d8a5b); color: #fff; font-size: .75rem; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
 .saree-product-id { position: absolute; bottom: 10px; left: 10px; z-index: 1; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 9px; border-radius: 5px; background: rgba(6, 43, 30, .82); color: #fff; font-size: .72rem; font-weight: 600; letter-spacing: .02em; }
 .card-actions { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; opacity: 0; transition: opacity .25s; }
@@ -165,8 +164,8 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 /* ===== Saree Detail ===== */
 .detail-wrap { padding: 40px 0 70px; }
 .detail-wrap .breadcrumb-item a { color: var(--emerald); }
-.detail-image { position: relative; border-radius: var(--radius); overflow: hidden; border: 1px solid #e4dec6; box-shadow: 0 18px 40px rgba(6,43,30,.14); }
-.detail-image img { width: 100%; height: auto; display: block; aspect-ratio: 3 / 4; object-fit: cover; }
+.detail-image { position: relative; aspect-ratio: 3 / 4; border-radius: var(--radius); overflow: hidden; border: 1px solid #e4dec6; box-shadow: 0 18px 40px rgba(6,43,30,.14); background: #efeadd; }
+.detail-image img { width: 100%; height: 100%; display: block; object-fit: fill; }
 .detail-info { padding-top: 8px; }
 .detail-cat { display: inline-block; text-transform: uppercase; letter-spacing: 2.5px; font-size: .78rem; font-weight: 600; color: var(--gold-dark); text-decoration: none; }
 .detail-cat + .detail-cat { margin-left: 14px; padding-left: 14px; border-left: 1px solid #dcd5bd; }
@@ -250,8 +249,7 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .collection-style-card { display: block; height: 100%; overflow: hidden; border-radius: var(--radius); background: #fff; color: var(--ink); text-decoration: none; box-shadow: 0 8px 24px rgba(6,43,30,.09); transition: transform .2s, box-shadow .2s; }
 .collection-style-card:hover { color: var(--ink); transform: translateY(-4px); box-shadow: 0 14px 30px rgba(6,43,30,.16); }
 .collection-style-image { position: relative; aspect-ratio: 4 / 3; overflow: hidden; background: linear-gradient(135deg, #e9e1cc, #d9e7df); }
-.collection-style-image img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .35s; }
-.collection-style-card:hover .collection-style-image img { transform: scale(1.04); }
+.collection-style-image img { display: block; width: 100%; height: 100%; object-fit: fill; }
 .collection-style-placeholder { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; color: rgba(14,92,63,.55); font-size: 3rem; }
 .collection-style-count { position: absolute; right: 12px; bottom: 12px; border-radius: 20px; padding: 5px 11px; background: rgba(255,255,255,.93); color: var(--emerald); font-size: .72rem; font-weight: 600; }
 .collection-style-info { padding: 16px 18px 18px; }
@@ -277,7 +275,7 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
    page. Hovering grows it slightly and slides the number out to its left. */
 .whatsapp-float { position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 1030; display: inline-flex; align-items: center; gap: 0; text-decoration: none; }
 .whatsapp-float-icon { width: 54px; height: 54px; min-width: 54px; border-radius: 50%; background: #25d366; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 1.7rem; box-shadow: 0 6px 18px rgba(0,0,0,.22); border: 3px solid #fff; transition: width .25s, height .25s, min-width .25s, transform .25s, font-size .25s, background .25s; }
-.whatsapp-float-label { max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; background: var(--emerald-deep); color: #fff; font-size: .9rem; font-weight: 500; letter-spacing: .3px; height: 54px; display: inline-flex; align-items: center; padding: 0; border-radius: 30px 0 0 30px; transition: max-width .3s, opacity .25s, padding .3s; }
+.whatsapp-float-label { max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; background: var(--emerald-deep); color: #fff; font-size: .9rem; font-weight: 500; letter-spacing: .3px; height: 54px; display: inline-flex; align-items: center; padding: 0; border-radius: 0 30px 30px 0; transition: max-width .3s, opacity .25s, padding .3s; }
 .whatsapp-float:hover .whatsapp-float-icon, .whatsapp-float:focus-visible .whatsapp-float-icon { transform: scale(1.12); background: #1eb856; }
 .whatsapp-float:hover .whatsapp-float-label, .whatsapp-float:focus-visible .whatsapp-float-label { max-width: 190px; opacity: 1; padding: 0 16px 0 20px; }
 @media (max-width: 767px) { .whatsapp-float-icon { width: 48px; height: 48px; min-width: 48px; font-size: 1.5rem; } .whatsapp-float-label { height: 48px; } }
@@ -290,6 +288,8 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .footer-contact i { color: var(--gold); margin-right: 10px; }
 .footer-contact a { color: #c4d2ca; text-decoration: none; }
 .footer-contact a:hover { color: var(--gold); }
+.footer-map-frame { width: 100%; height: 140px; margin-top: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; }
+.footer-map-frame iframe { width: 100%; height: 100%; border: 0; }
 .footer-bottom { border-top: 1px solid rgba(255,255,255,.1); padding: 18px 0; text-align: center; font-size: .84rem; color: #8fa39a; }
 .footer-bottom i { color: #e25555; }
 
@@ -305,7 +305,7 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .cart-wrap { padding: 40px 0 64px; }
 .cart-table { background: #fff; border-radius: var(--radius); border: 1px solid #e4dec6; overflow: hidden; }
 .cart-row { display: flex; align-items: center; gap: 14px; padding: 16px; border-bottom: 1px solid #efe9d8; }
-.cart-row img { width: 84px; height: 112px; object-fit: cover; border-radius: 10px; }
+.cart-row img { width: 84px; height: 112px; object-fit: fill; border-radius: 10px; }
 .cart-item-name { font-family: 'Playfair Display', serif; font-weight: 600; color: var(--ink); margin-bottom: 2px; }
 .cart-item-meta { font-size: .8rem; color: var(--muted); }
 .cart-summary { background: #fff; border-radius: var(--radius); border: 1px solid #e4dec6; padding: 22px; }

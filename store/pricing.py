@@ -81,6 +81,25 @@ def is_valid_discount_percent(value):
     return percent.is_finite() and ZERO_PERCENT <= percent <= MAX_DISCOUNT_PERCENT
 
 
+def is_valid_gst_percent(value):
+    if value is None or value == "":
+        return False
+    try:
+        percent = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return False
+    return percent.is_finite() and Decimal("1") <= percent <= MAX_DISCOUNT_PERCENT
+
+
+def gst_amount(taxable_amount, gst_percent):
+    if not is_valid_gst_percent(gst_percent):
+        raise ValueError("GST percentage must be between 1 and 100.")
+    return (to_amount(taxable_amount) * Decimal(str(gst_percent)) / HUNDRED).quantize(
+        TWO_PLACES,
+        rounding=ROUND_HALF_UP,
+    )
+
+
 def discount_amount(original_amount, discount_percent):
     """Discount Amount = Original Amount x Discount % / 100, to 2 places."""
     original = to_amount(original_amount)

@@ -25,9 +25,9 @@
         <div class="login-shell">
             <section class="login-story">
                 <div class="login-mark"><i class="bi bi-flower1"></i></div>
-                <h1>Welcome to Swathi Designers</h1>
-                <p>Step into a thoughtfully curated world of handloom stories, festive silks, and timeless drapes.</p>
-                <span class="login-note"><i class="bi bi-stars"></i> Your saree story begins here</span>
+                <h1>{{ login_content.heading }}</h1>
+                <p>{{ login_content.description }}</p>
+                <span class="login-note"><i class="bi bi-stars"></i> {{ login_content.tagline }}</span>
             </section>
             <section class="login-card">
                 <h2>Sign in to continue</h2>
@@ -43,7 +43,7 @@
                     <div class="login-field">
                         <label class="login-label" for="login-phone">Phone number</label>
                         <!-- <i class="bi bi-phone"></i> -->
-                        <input class="form-control login-input" id="login-phone" name="phone" type="tel" placeholder="Demo: 9876543210" autocomplete="tel" inputmode="numeric" maxlength="10" pattern="[6-9][0-9]{9}" title="Enter a 10 digit mobile number starting with 6, 7, 8 or 9." required>
+                            <input class="form-control login-input" id="login-phone" name="phone" type="tel" placeholder="Ex: 9876543210" autocomplete="tel" inputmode="numeric" maxlength="10" pattern="[6-9][0-9]{9}" title="Enter a 10 digit mobile number starting with 6, 7, 8 or 9." required>
                     </div>
                     <button class="btn btn-gold login-button" type="submit">Continue <i class="bi bi-arrow-right ms-1"></i></button>
                 </form>

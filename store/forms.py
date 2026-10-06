@@ -9,10 +9,11 @@ from django.core.validators import URLValidator
 from django.template import loader
 
 from .models import ContactMessage, Saree, SiteSettings, SubCategory
+from .maps import extract_map_source
 
 PHONE_RE = re.compile(r"[0-9]{10}")
 MOBILE_RE = re.compile(r"[6-9][0-9]{9}")
-PHONE_ERROR = "Please give correct number."
+PHONE_ERROR = "Please enter a valid 10-digit mobile number starting with 6-9."
 WHATSAPP_RE = re.compile(r"\d{10,15}")
 REQUIRED_SITE_FIELDS = ("phone", "email", "address", "map_embed_url", "whatsapp")
 MAP_URL_VALIDATOR = URLValidator(
@@ -134,27 +135,28 @@ class ContactForm(forms.ModelForm):
         model = ContactMessage
         fields = ("name", "email", "phone", "subject", "message")
         error_messages = {
-            "name": {"required": "Please give correct username."},
+            "name": {"required": "Please enter username."},
             "email": {
-                "required": "Please give correct email address.",
-                "invalid": "Please give correct email address.",
+                "required": "Please enter Email.",
+                "invalid": "Please enter Email.",
             },
-            "subject": {"required": "Please give correct subject."},
-            "message": {"required": "Please give correct message."},
+            "phone": {"required": "Please enter phone number."},
+            "subject": {"required": "Please enter subject."},
+            "message": {"required": "Please enter Message."},
         }
         widgets = {
             "name": forms.TextInput(
                 attrs={
                     "class": "form-control",
                     "autocomplete": "name",
-                    "placeholder": "Demo: Priya Raman",
+                    "placeholder": "Ex: Priya Raman",
                 }
             ),
             "email": forms.EmailInput(
                 attrs={
                     "class": "form-control",
                     "autocomplete": "email",
-                    "placeholder": "Demo: priya.raman@example.com",
+                    "placeholder": "Ex: priya.raman@example.com",
                 }
             ),
             "phone": forms.TextInput(
@@ -163,20 +165,22 @@ class ContactForm(forms.ModelForm):
                     "autocomplete": "tel",
                     "inputmode": "numeric",
                     "maxlength": "10",
-                    "placeholder": "Demo: 9876543210",
+                    "pattern": "[6-9][0-9]{9}",
+                    "title": "Enter a 10-digit mobile number starting with 6-9.",
+                    "placeholder": "Ex: 9876543210",
                 }
             ),
             "subject": forms.TextInput(
                 attrs={
                     "class": "form-control",
-                    "placeholder": "Demo: I want to know the delivery time for Kanjivaram silk sarees",
+                    "placeholder": "Ex: I want to know the delivery time for Kanjivaram silk sarees",
                 }
             ),
             "message": forms.Textarea(
                 attrs={
                     "class": "form-control",
                     "rows": 6,
-                    "placeholder": "Demo: I am looking for a wedding saree that is light weight. Please share the designs and prices.",
+                    "placeholder": "Ex: I am looking for a wedding saree that is light weight. Please share the designs and prices.",
                 }
             ),
         }
@@ -190,18 +194,22 @@ class ContactForm(forms.ModelForm):
         """
         return False
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["phone"].required = True
+
     def clean_phone(self):
-        """Optional, but when given it must be a real 10 digit mobile number."""
-        phone = re.sub(r"\D", "", self.cleaned_data.get("phone") or "")
-        if phone and not MOBILE_RE.fullmatch(phone):
+        """Require a ten-digit mobile number that starts from 6 through 9."""
+        phone = (self.cleaned_data.get("phone") or "").strip()
+        if not MOBILE_RE.fullmatch(phone):
             raise ValidationError(PHONE_ERROR, code="invalid")
         return phone
 
 
 class SiteSettingsForm(forms.ModelForm):
     map_embed_url = forms.CharField(
-        widget=forms.URLInput,
-        validators=[MAP_URL_VALIDATOR],
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Paste a map URL or iframe embed code"}),
     )
 
     class Meta:
@@ -229,6 +237,17 @@ class SiteSettingsForm(forms.ModelForm):
                 code="invalid",
             )
         return digits
+
+    def clean_map_embed_url(self):
+        value = (self.cleaned_data.get("map_embed_url") or "").strip()
+        source = extract_map_source(value)
+        if not source:
+            raise ValidationError("Enter a map URL or iframe embed code.", code="invalid")
+        try:
+            MAP_URL_VALIDATOR(source)
+        except ValidationError as error:
+            raise ValidationError(error.messages, code="invalid") from error
+        return value
 
 
 class PasswordResetForm(auth_forms.PasswordResetForm):

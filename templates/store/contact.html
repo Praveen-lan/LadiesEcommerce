@@ -24,7 +24,7 @@
                         {% if site.address %}
                         <li>
                             <i class="bi bi-geo-alt-fill"></i>
-                            <div><strong>Our address</strong><span>{{ site.address }}</span></div>
+                            <div><strong>Our address</strong><a class="contact-address-link" href="{{ contact_map_link_url }}" target="_blank" rel="noopener">{{ site.address }}</a></div>
                         </li>
                         {% endif %}
                         {% if site.phone %}
@@ -74,7 +74,7 @@
                                 {% for error in contact_form.email.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label" for="{{ contact_form.phone.id_for_label }}">Phone number <span class="optional-label">(optional)</span></label>
+                                <label class="form-label" for="{{ contact_form.phone.id_for_label }}">Phone number *</label>
                                 {{ contact_form.phone }}
                                 {% for error in contact_form.phone.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
                             </div>

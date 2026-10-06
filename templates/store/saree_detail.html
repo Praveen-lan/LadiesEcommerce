@@ -30,16 +30,6 @@
                     <div class="detail-meta">
                         <div class="meta-row"><span>Fabric</span><strong>{{ saree.fabric|default:saree.category.title }}</strong></div>
                         <div class="meta-row"><span>Length</span><strong>{{ saree.card_length }}</strong></div>
-                        <div class="meta-row">
-                            <span>{% if saree.in_stock %}In Stock{% else %}Availability{% endif %}</span>
-                            <strong class="{% if saree.in_stock %}text-success{% else %}text-danger{% endif %}">
-                                {% if saree.in_stock %}In Stock{% else %}Out of Stock{% endif %}
-                            </strong>
-                        </div>
-                        {% if saree.in_stock and saree.card_dispatch_note %}
-                        <div class="meta-row"><span>Dispatch</span><strong>{{ saree.card_dispatch_note }}</strong></div>
-                        {% endif %}
-                        <div class="meta-row"><span>Delivery</span><strong>Free above &#8377; {{ free_shipping_above }}</strong></div>
                     </div>
 
                     <div class="detail-desc">
@@ -61,7 +51,6 @@
                     </form>
 
                     <div class="detail-assure">
-                        <span><i class="bi bi-truck"></i> Free &amp; fast delivery</span>
                         <span><i class="bi bi-arrow-repeat"></i> 7-day easy returns</span>
                         <span><i class="bi bi-shield-check"></i> Quality checked</span>
                     </div>

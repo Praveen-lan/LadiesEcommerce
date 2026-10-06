@@ -6,7 +6,14 @@ from django.conf import settings
 from django.db import models
 from django.urls import reverse
 
-from .pricing import GST_RATE, is_valid_discount_percent, price_breakdown, to_amount
+from .pricing import (
+    GST_RATE,
+    gst_amount,
+    is_valid_discount_percent,
+    is_valid_gst_percent,
+    price_breakdown,
+    to_amount,
+)
 
 # Fallbacks for the two saree card details, used when a saree leaves the field
 # empty so every saree still shows the full set of details.
@@ -21,7 +28,7 @@ class SiteSettings(models.Model):
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
     address = models.CharField(max_length=255, blank=True)
-    map_embed_url = models.URLField(blank=True)
+    map_embed_url = models.TextField(blank=True)
     whatsapp = models.CharField(max_length=30, blank=True)
     facebook = models.URLField(blank=True)
     instagram = models.URLField(blank=True)
@@ -91,6 +98,27 @@ class SEO(models.Model):
 
     def __str__(self):
         return self.page_name or self.site_name
+
+    @classmethod
+    def current(cls):
+        return cls.objects.order_by("-pk").first()
+
+
+class LoginPage(models.Model):
+    heading = models.CharField(max_length=160, default="Welcome to Swathi Designers")
+    description = models.TextField(
+        max_length=400,
+        default="Step into a thoughtfully curated world of handloom stories, festive silks, and timeless drapes.",
+    )
+    tagline = models.CharField(max_length=160, default="Your saree story begins here")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Login Page Content"
+        verbose_name_plural = "Login Page Content"
+
+    def __str__(self):
+        return self.heading
 
     @classmethod
     def current(cls):
@@ -308,6 +336,22 @@ class Saree(models.Model):
             "then final amount = original amount - discount."
         ),
     )
+    delivery_charge = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Additional delivery charge per saree, added to the site delivery fee when applicable.",
+    )
+    gst_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        blank=True,
+        default=Decimal("5.00"),
+        validators=[MinValueValidator(Decimal("1.00")), MaxValueValidator(Decimal("100.00"))],
+        help_text="GST percentage applied to this saree, from 1 to 100.",
+    )
     fabric = models.CharField(max_length=120, blank=True)
     length = models.CharField(
         max_length=120,
@@ -354,6 +398,8 @@ class Saree(models.Model):
             )
         if not is_valid_discount_percent(self.discount_percent):
             raise ValidationError({"discount_percent": "Enter a discount between 0 and 100 percent."})
+        if not is_valid_gst_percent(self.gst_percent):
+            raise ValidationError({"gst_percent": "Enter a GST percentage between 1 and 100."})
         if self.price is not None and Decimal(str(self.price)) < 0:
             raise ValidationError({"price": "Price cannot be negative."})
         if self.mrp is not None and Decimal(str(self.mrp)) < 0:
@@ -387,6 +433,8 @@ class Saree(models.Model):
             self.category_id = self.subcategory.category_id
         if not is_valid_discount_percent(self.discount_percent):
             raise ValidationError({"discount_percent": "Enter a discount between 0 and 100 percent."})
+        if not is_valid_gst_percent(self.gst_percent):
+            raise ValidationError({"gst_percent": "Enter a GST percentage between 1 and 100."})
         if self.discount_percent is not None:
             breakdown = self.calculate_price_breakdown()
             self.mrp = breakdown["original"]
@@ -549,8 +597,14 @@ class Order(models.Model):
 
         subtotal = sum((item.line_total for item in self.items.all()), Decimal("0"))
         fee, limit = shipping_rules()
-        delivery = fee if 0 < subtotal < limit else Decimal("0")
-        gst = (subtotal * GST_RATE).quantize(Decimal("0.01"))
+        items = list(self.items.all())
+        base_delivery = fee if 0 < subtotal < limit else Decimal("0.00")
+        product_delivery = sum(
+            (item.delivery_charge * item.quantity for item in items),
+            Decimal("0.00"),
+        )
+        delivery = base_delivery + product_delivery
+        gst = sum((gst_amount(item.line_total, item.gst_percent) for item in items), Decimal("0.00"))
         self.subtotal = subtotal
         self.delivery_charge = delivery
         self.gst = gst
@@ -565,6 +619,18 @@ class OrderItem(models.Model):
     name = models.CharField(max_length=150)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)
+    delivery_charge = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    gst_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("5.00"),
+        validators=[MinValueValidator(Decimal("1.00")), MaxValueValidator(Decimal("100.00"))],
+    )
 
     @property
     def line_total(self):

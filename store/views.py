@@ -5,7 +5,7 @@ import uuid
 import unicodedata
 from decimal import Decimal
 from io import BytesIO
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from django.contrib import messages
 from django.contrib.auth import views as auth_views
@@ -19,11 +19,13 @@ from django.utils.safestring import mark_safe
 from PIL import Image as PILImage
 from .cart import Cart, shipping_rules
 from .forms import ContactForm, PasswordResetForm, PaymentProofForm
+from .maps import extract_map_source
 from .models import (
     AboutPage,
     Banner,
     Category,
     Customer,
+    LoginPage,
     Order,
     OrderItem,
     PaymentProof,
@@ -171,6 +173,8 @@ def _base_context(request=None):
         "customer": customer,
         "shipping_fee": shipping_fee,
         "free_shipping_above": free_shipping_above,
+        "contact_map_url": _contact_map_url(site),
+        "contact_map_link_url": _contact_map_link(site),
     }
     context.update(_seo_context(request, site=site, seo=seo, noindex=noindex))
     return context
@@ -185,9 +189,23 @@ def _customer(request):
 
 def _contact_map_url(site):
     if site and site.map_embed_url:
-        return site.map_embed_url
+        source = extract_map_source(site.map_embed_url)
+        if source:
+            return source
     address = site.address.strip() if site and site.address else "Chennai, Tamil Nadu, India"
     return f"https://www.google.com/maps?q={quote(address)}&output=embed"
+
+
+def _contact_map_link(site):
+    parts = urlsplit(_contact_map_url(site))
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    if parts.netloc.lower() in {"google.com", "www.google.com", "maps.google.com"}:
+        path = parts.path
+        if path.rstrip("/") == "/maps/embed":
+            path = "/maps"
+        query = [(key, value) for key, value in query if not (key == "output" and value == "embed")]
+        return urlunsplit((parts.scheme, parts.netloc, path, urlencode(query), ""))
+    return _contact_map_url(site)
 
 
 def _payee_name(site):
@@ -268,6 +286,7 @@ def login_view(request):
         noindex=True,
     )
     login_images = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt=""))[:3]
+    login_content = LoginPage.current() or LoginPage()
     error = ""
 
     if request.method == "POST":
@@ -295,6 +314,7 @@ def login_view(request):
         {
             "site": site,
             "login_images": login_images,
+            "login_content": login_content,
             "login_error": error,
             **seo_context,
         },
@@ -775,6 +795,8 @@ def checkout(request):
                 name=item["saree"].name,
                 price=item["saree"].final_amount,
                 quantity=item["quantity"],
+                delivery_charge=item["saree"].delivery_charge,
+                gst_percent=item["saree"].gst_percent,
             )
         screenshot = request.FILES.get("payment_screenshot")
         if screenshot:

@@ -10,10 +10,11 @@ def test_contact_form_shows_requested_required_field_messages():
     form = ContactForm(data={})
 
     assert not form.is_valid()
-    assert form.errors["name"] == ["Please give correct username."]
-    assert form.errors["email"] == ["Please give correct email address."]
-    assert form.errors["subject"] == ["Please give correct subject."]
-    assert form.errors["message"] == ["Please give correct message."]
+    assert form.errors["name"] == ["Please enter username."]
+    assert form.errors["email"] == ["Please enter Email."]
+    assert form.errors["phone"] == ["Please enter phone number."]
+    assert form.errors["subject"] == ["Please enter subject."]
+    assert form.errors["message"] == ["Please enter Message."]
 
 
 def test_contact_form_shows_requested_message_for_invalid_email():
@@ -28,7 +29,41 @@ def test_contact_form_shows_requested_message_for_invalid_email():
     )
 
     assert not form.is_valid()
-    assert form.errors["email"] == ["Please give correct email address."]
+    assert form.errors["email"] == ["Please enter Email."]
+
+
+@pytest.mark.parametrize(
+    "phone",
+    ["", "5123456789", "612345678", "61234567890", "abcdefghij", "abc6123456789", "61234-56789"],
+)
+def test_contact_form_requires_a_ten_digit_mobile_starting_with_six_to_nine(phone):
+    form = ContactForm(
+        data={
+            "name": "A Shopper",
+            "email": "shopper@example.com",
+            "phone": phone,
+            "subject": "Product question",
+            "message": "Please contact me.",
+        }
+    )
+
+    assert not form.is_valid()
+    assert "phone" in form.errors
+
+
+@pytest.mark.parametrize("phone", ["6123456789", "7123456789", "8123456789", "9876543210"])
+def test_contact_form_accepts_ten_digit_mobile_numbers_starting_with_six_to_nine(phone):
+    form = ContactForm(
+        data={
+            "name": "A Shopper",
+            "email": "shopper@example.com",
+            "phone": phone,
+            "subject": "Product question",
+            "message": "Please contact me.",
+        }
+    )
+
+    assert form.is_valid(), form.errors
 
 
 @pytest.mark.parametrize("method", ["get", "post"])
@@ -64,10 +99,11 @@ def test_contact_page_shows_the_requested_messages(client, db):
 
     html = response.content.decode()
     for message in (
-        "Please give correct username.",
-        "Please give correct email address.",
-        "Please give correct subject.",
-        "Please give correct message.",
+        "Please enter username.",
+        "Please enter Email.",
+        "Please enter phone number.",
+        "Please enter subject.",
+        "Please enter Message.",
     ):
         assert message in html
 
@@ -82,9 +118,10 @@ def test_empty_contact_post_is_bound_and_shows_required_messages(client, db):
 
     assert response.status_code == 200
     for message in (
-        "Please give correct username.",
-        "Please give correct email address.",
-        "Please give correct subject.",
-        "Please give correct message.",
+        "Please enter username.",
+        "Please enter Email.",
+        "Please enter phone number.",
+        "Please enter subject.",
+        "Please enter Message.",
     ):
         assert message in html

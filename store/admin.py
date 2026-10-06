@@ -19,6 +19,7 @@ from .models import (
     Order,
     OrderItem,
     OTPRequest,
+    LoginPage,
     PaymentProof,
     PaymentQR,
     Saree,
@@ -85,6 +86,9 @@ def blank_text_initial(form):
     are required fields and blanking them would block saving. Model defaults
     stay untouched for the code paths that build unsaved instances directly.
     """
+    for field in form.fields.values():
+        field.label = format_html("<strong>{}</strong>", field.label)
+
     if form.instance.pk is not None:
         return
     for name, field in form.fields.items():
@@ -115,6 +119,19 @@ class BlankTextOnAddMixin:
 # silently disables the whole selected-rows delete flow.
 SELECTED_INLINE_DELETE_JS = "store/admin/selected-inline-delete.js"
 SUBCATEGORY_FILTER_JS = "store/admin/subcategory-filter.js"
+
+
+@admin.register(LoginPage)
+class LoginPageAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
+    fields = ("heading", "description", "tagline", "updated_at")
+    readonly_fields = ("updated_at",)
+    list_display = ("heading", "updated_at")
+
+    def has_add_permission(self, request):
+        return not LoginPage.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AboutPage)
@@ -356,6 +373,11 @@ class SEOAdminForm(forms.ModelForm):
             "google_site_verification",
         )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.required = True
+
 
 @admin.register(SEO)
 class SEOAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
@@ -394,6 +416,8 @@ class SareeInlineForm(ProductIdMixin, forms.ModelForm):
             "price",
             "mrp",
             "discount_percent",
+            "delivery_charge",
+            "gst_percent",
             "fabric",
             "length",
             "in_stock",
@@ -444,6 +468,8 @@ class SareeInline(BlankTextOnAddMixin, admin.TabularInline):
             "price",
             "mrp",
             "discount_percent",
+            "delivery_charge",
+            "gst_percent",
             "fabric",
             "length",
             "in_stock",
@@ -590,6 +616,8 @@ class SubCategorySareeInline(BlankTextOnAddMixin, admin.TabularInline):
         "price",
         "mrp",
         "discount_percent",
+        "delivery_charge",
+        "gst_percent",
         "fabric",
         "length",
         "in_stock",

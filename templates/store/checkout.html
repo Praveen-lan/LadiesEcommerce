@@ -33,7 +33,7 @@
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label" for="checkout-phone">Phone Number *</label>
-                                    <input type="tel" id="checkout-phone" name="phone" class="form-control" placeholder="Demo: 9876543210" inputmode="numeric" maxlength="10" pattern="[6-9][0-9]{9}" title="Enter a 10 digit mobile number starting with 6, 7, 8 or 9." value="{{ checkout_values.phone|default:'' }}" aria-describedby="checkout-phone-error" {% if checkout_error_field == 'phone' %}aria-invalid="true"{% endif %} required>
+                                    <input type="tel" id="checkout-phone" name="phone" class="form-control" placeholder="Ex: 9876543210" inputmode="numeric" maxlength="10" pattern="[6-9][0-9]{9}" title="Enter a 10 digit mobile number starting with 6, 7, 8 or 9." value="{{ checkout_values.phone|default:'' }}" aria-describedby="checkout-phone-error" {% if checkout_error_field == 'phone' %}aria-invalid="true"{% endif %} required>
                                     <div id="checkout-phone-error" class="invalid-feedback{% if checkout_error_field == 'phone' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'phone' %}{{ checkout_error }}{% else %}Please enter a valid 10-digit phone number.{% endif %}</div>
                                 </div>
                                 <div class="col-12">
@@ -102,7 +102,7 @@
                 <div class="col-md-6">
                     <label class="form-label small fw-semibold" for="payment_reference">UPI reference / UTR (optional)</label>
                     <input type="text" class="form-control" id="payment_reference" name="payment_reference"
-                           value="{{ checkout_values.payment_reference|default:'' }}" placeholder="e.g. 425781230001">
+                           value="{{ checkout_values.payment_reference|default:'' }}" placeholder="Ex: 425781230001">
                 </div>
                 <div class="col-md-6">
                     <label class="form-label small fw-semibold" for="payment_screenshot">Payment screenshot</label>
@@ -119,7 +119,7 @@
                     <button type="submit" class="btn btn-gold w-100 rounded-pill py-3 mt-4 fs-5" id="pay-button">
                         Pay &#8377; {{ totals.total }} <i class="bi bi-shield-lock"></i>
                     </button>
-                    <div class="text-center mt-2 small text-muted"><i class="bi bi-patch-check-fill text-success"></i> 100% secure payments | Easy 7-day returns</div>
+                    <div class="text-center mt-2 small text-muted"><i class="bi bi-patch-check-fill text-success"></i> 100% secure payments</div>
                 </form>
             </div>
 
@@ -128,17 +128,19 @@
                     <h5>Order Summary</h5>
                     {% for item in cart_items %}
                     <div class="d-flex gap-3 align-items-center py-2 border-bottom">
-                        <img src="{{ item.saree.image_source }}" alt="{{ item.saree.name }}" style="width: 46px; height: 60px; object-fit: cover; border-radius: 8px;">
+                        <img src="{{ item.saree.image_source }}" alt="{{ item.saree.name }}" style="width: 46px; height: 60px; object-fit: fill; border-radius: 8px;">
                         <div class="flex-grow-1">
                             <div class="small fw-semibold">{{ item.saree.name }}</div>
                             <div class="text-muted small">Qty: {{ item.quantity }}</div>
+                            <div class="text-muted small">Delivery: &#8377; {{ item.delivery_charge }}</div>
+                            <div class="text-muted small">GST ({{ item.gst_percent }}%): &#8377; {{ item.gst_amount }}</div>
                         </div>
                         <div class="small fw-semibold">&#8377; {{ item.line_total }}</div>
                     </div>
                     {% endfor %}
                     <div class="sum-row mt-2"><span>Subtotal</span><span>&#8377; {{ totals.subtotal }}</span></div>
                     <div class="sum-row"><span>Delivery</span><span>{% if totals.delivery > 0 %}&#8377; {{ totals.delivery }}{% else %}Free{% endif %}</span></div>
-                    <div class="sum-row"><span>GST (5%)</span><span>&#8377; {{ totals.gst }}</span></div>
+                    <div class="sum-row"><span>GST</span><span>&#8377; {{ totals.gst }}</span></div>
                     <div class="sum-row total"><span>Total</span><span>&#8377; {{ totals.total }}</span></div>
                     <a href="{% url 'store:cart' %}" class="btn btn-outline-gold w-100 rounded-pill mt-2"><i class="bi bi-arrow-left"></i> Back to Cart</a>
                 </div>
