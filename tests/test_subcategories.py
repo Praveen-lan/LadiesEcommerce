@@ -315,7 +315,7 @@ def test_collection_saree_card_shows_admin_product_id_on_image(signed_in, silk_c
     content = response.content.decode()
 
     assert response.status_code == 200
-    assert '<span class="saree-product-id">ID: SD-SRK-1001</span>' in content
+    assert '<span class="saree-product-id">Product ID: SD-SRK-1001</span>' in content
 
 
 @pytest.mark.django_db

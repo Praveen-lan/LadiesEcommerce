@@ -251,6 +251,15 @@ class StorePageTests(TestCase):
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn(">All Catalog</a>", content)
 
+    def test_new_category_is_shown_in_collections_and_services(self):
+        title = "New Designer Collection for Weddings"
+        category = Category.objects.create(title=title, tier=Category.Tier.HIGH)
+
+        response = self.client.get(reverse("store:home"))
+
+        self.assertIn(category, response.context["navigation_categories"])
+        self.assertContains(response, f'<span class="collections-category-title">{title}</span>')
+
 
 class CheckoutNameValidationTests(TestCase):
     def setUp(self):
@@ -1704,6 +1713,14 @@ class SareeCardDetailsTests(TestCase):
         self.assertIn("1250.00", card)
         self.assertIn("<del>&#8377; 1250.00</del>", card)
 
+    def test_the_collection_preview_shows_the_product_id_on_the_image(self):
+        self.saree.product_id = "SD-SILK-1001"
+        self.saree.save()
+
+        response = self.client.get(reverse("store:category_detail", args=[self.category.slug]))
+
+        self.assertContains(response, '<span class="saree-product-id">Product ID: SD-SILK-1001</span>')
+
     def test_the_card_hides_the_details_that_belong_on_the_product_page(self):
         content = self.client.get(reverse("store:category_detail", args=[self.category.slug])).content.decode()
         card = content.split("saree-card", 1)[1].split("</form>", 1)[0]
@@ -1724,6 +1741,14 @@ class SareeCardDetailsTests(TestCase):
         self.assertNotIn("In Stock", content)
         self.assertNotIn("Dispatch", content)
         self.assertNotIn("Delivery", content)
+
+    def test_product_detail_shows_the_product_id(self):
+        self.saree.product_id = "SD-SILK-1001"
+        self.saree.save()
+
+        response = self.client.get(reverse("store:saree_detail", args=[self.saree.slug]))
+
+        self.assertContains(response, '<span class="saree-product-id">Product ID: SD-SILK-1001</span>')
 
     def test_the_delivery_limit_is_read_from_site_settings(self):
         site = SiteSettings.objects.first() or SiteSettings.objects.create(shop_name="Swathi Designers")
@@ -1934,6 +1959,9 @@ class PaymentQRAdminTests(TestCase):
         content = self.client.get(reverse("store:checkout")).content.decode()
 
         self.assertIn("payment-qr/", content)
+        self.assertNotIn("checkout-qr-heading", content)
+        self.assertIn("shop@upi", content)
+        self.assertIn("Amount to pay", content)
         self.assertIn("Payment Verification", content)
 
     def test_the_checkout_falls_back_to_the_generated_qr_when_none_is_uploaded(self):

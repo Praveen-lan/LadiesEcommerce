@@ -74,19 +74,20 @@
     </label>
 
     <div class="pay-fields">
-        <div class="row g-3 mt-1 align-items-center">
-            <div class="col-auto">
+        <div class="checkout-payment-panel mt-3">
+            <div class="checkout-qr-card">
                 <div class="qr-box">
-                    {% if payment_qr and payment_qr.image %}
-                        <img src="{{ payment_qr.image.url }}" alt="Scan to pay QR">
-                    {% else %}
-                        <img src="{% url 'store:generate_qr' %}" alt="Scan to pay QR">
-                    {% endif %}
+                    <img src="{{ payment_qr_url }}" alt="UPI payment QR code for {{ payment_payee_name }}">
                 </div>
+                <div class="checkout-qr-caption">Open any UPI app and scan</div>
             </div>
-            <div class="col">
-                <div class="fw-semibold mb-1">Scan &amp; Pay</div>
-                <div class="small text-muted">Open any UPI app, scan this QR and pay <strong>&#8377; {{ totals.total }}</strong>. Then upload the screenshot below so we can verify it.</div>
+            <div class="checkout-payment-details">
+                <div class="small text-muted text-uppercase fw-semibold">Paying to</div>
+                <div class="checkout-payee">{{ payment_payee_name }}</div>
+                <div class="checkout-upi-id"><i class="bi bi-at"></i> {{ payment_upi_id }}</div>
+                <div class="checkout-amount-label">Amount to pay</div>
+                <div class="checkout-amount">&#8377; {{ totals.total }}</div>
+                <div class="small text-muted mt-2">After payment, upload your screenshot below so we can verify it.</div>
             </div>
         </div>
 

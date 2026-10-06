@@ -35,15 +35,16 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .main-navbar .dropdown-item:hover { background: var(--cream); color: var(--emerald); }
 .main-navbar .dropdown-item.active { background: var(--emerald); color: #fff; }
 .main-navbar .collections-nav { position: relative; }
-.main-navbar .collections-menu { max-height: 75vh; overflow-y: auto; min-width: 280px; padding: 10px; }
+.main-navbar .collections-menu { max-height: 75vh; overflow-y: auto; overscroll-behavior: contain; min-width: 280px; padding: 10px; }
 .main-navbar .collections-category { position: relative; }
 .main-navbar .collections-category-link {
     display: flex; align-items: center; justify-content: space-between; gap: 18px; width: 100%;
     text-align: left; font-weight: 600; color: var(--emerald); background: transparent;
     border: 0; border-bottom: 1px solid #eee9db;
 }
+.main-navbar .collections-category-title { max-width: 25ch; overflow-wrap: anywhere; line-height: 1.3; }
 .main-navbar .collections-category-link i { color: var(--gold-dark); font-size: .75rem; }
-.main-navbar .collection-submenu { display: none; position: static; margin: 0; padding: 4px 0 8px 12px; list-style: none; }
+.main-navbar .collection-submenu { display: none; position: static; max-height: min(50vh, 280px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; margin: 0; padding: 4px 0 8px 12px; list-style: none; }
 .main-navbar .collections-category:hover > .collection-submenu,
 .main-navbar .collections-category.is-open > .collection-submenu { display: block; }
 .main-navbar .collections-child { padding-left: 30px; font-size: .88rem; color: var(--muted); }
@@ -146,7 +147,7 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .saree-img-wrap { position: relative; display: block; aspect-ratio: 3 / 4; overflow: hidden; background: #efeadd; text-decoration: none; }
 .saree-img-wrap img { width: 100%; height: 100%; object-fit: fill; }
 .discount-badge { position: absolute; top: 10px; left: 10px; background: linear-gradient(135deg, var(--emerald), #1d8a5b); color: #fff; font-size: .75rem; font-weight: 600; padding: 4px 10px; border-radius: 20px; }
-.saree-product-id { position: absolute; bottom: 10px; left: 10px; z-index: 1; max-width: calc(100% - 20px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 4px 9px; border-radius: 5px; background: rgba(6, 43, 30, .82); color: #fff; font-size: .72rem; font-weight: 600; letter-spacing: .02em; }
+.saree-product-id { position: absolute; bottom: 10px; left: 10px; z-index: 1; max-width: calc(100% - 20px); padding: 6px 10px; border: 1px solid rgba(255,255,255,.9); border-radius: 5px; background: var(--emerald-deep); box-shadow: 0 2px 8px rgba(0,0,0,.28); color: #fff; font-size: .75rem; font-weight: 700; line-height: 1.3; overflow-wrap: anywhere; }
 .card-actions { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column; gap: 6px; opacity: 0; transition: opacity .25s; }
 .saree-card:hover .card-actions { opacity: 1; }
 .card-actions span { width: 34px; height: 34px; background: #fff; color: var(--emerald); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: .95rem; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,.12); transition: all .2s; }
@@ -327,7 +328,20 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .pay-option.selected .pay-fields { display: block; }
 .pay-fields label { font-size: .82rem; color: var(--muted); font-weight: 500; }
 .qr-box { text-align: center; padding: 12px; }
-.qr-box img { width: 170px; height: 170px; border: 6px solid #fff; border-radius: 12px; box-shadow: 0 8px 22px rgba(0,0,0,.14); }
+.qr-box img { width: 184px; height: 184px; display: block; background: #fff; object-fit: contain; }
+.checkout-payment-panel { display: flex; align-items: center; gap: 24px; padding: 18px; border: 1px solid #e4dec6; border-radius: 10px; background: #f9f8f2; }
+.checkout-qr-card { flex: 0 0 auto; overflow: hidden; border: 1px solid #e8e5dc; border-radius: 8px; background: #fff; text-align: center; }
+.checkout-qr-card .qr-box { padding: 10px; }
+.checkout-qr-caption { padding: 0 10px 11px; color: var(--muted); font-size: .75rem; }
+.checkout-payment-details { min-width: 0; }
+.checkout-payee { margin-top: 4px; color: var(--ink); font-size: 1.05rem; font-weight: 700; overflow-wrap: anywhere; }
+.checkout-upi-id { color: var(--muted); font-size: .9rem; overflow-wrap: anywhere; }
+.checkout-amount-label { margin-top: 18px; color: var(--muted); font-size: .8rem; }
+.checkout-amount { color: var(--emerald); font-size: 1.5rem; font-weight: 700; }
+@media (max-width: 575.98px) {
+    .checkout-payment-panel { flex-direction: column; align-items: stretch; gap: 16px; padding: 14px; }
+    .checkout-qr-card { align-self: center; }
+}
 
 /* ===== Payment Verification ===== */
 .payment-verification { border: 1px dashed var(--gold); border-radius: 12px; padding: 14px 16px; background: #fffdf7; }

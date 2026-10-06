@@ -16,7 +16,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.safestring import mark_safe
-from PIL import Image as PILImage
+from PIL import Image as PILImage, ImageDraw, ImageFont
 from .cart import Cart, shipping_rules
 from .forms import ContactForm, PasswordResetForm, PaymentProofForm
 from .maps import extract_map_source
@@ -49,15 +49,6 @@ CHECKOUT_PAYMENT_METHODS = ((Order.PaymentMethod.QR, Order.PaymentMethod.QR.labe
 # the payment method section always shows a scannable code out of the box.
 DEFAULT_UPI_ID = "swathidesigners@upi"
 DEFAULT_PAYEE_NAME = "Swathi Designers"
-
-NAVIGATION_CATEGORY_TITLES = (
-    "Premium Collection",
-    "Luxury Collection",
-    "Base Collection",
-    "Everyday Comfort",
-    "Budget Collection",
-)
-
 
 def _absolute_url(request, value):
     if not value:
@@ -145,12 +136,7 @@ def _base_context(request=None):
     site = SiteSettings.objects.first()
     seo = SEO.current() or SEO()
     shipping_fee, free_shipping_above = shipping_rules()
-    navigation_categories_by_title = {
-        category.title: category
-        for category in Category.objects.filter(title__in=NAVIGATION_CATEGORY_TITLES)
-        .prefetch_related("subcategories")
-        .order_by("id")
-    }
+    categories = Category.objects.prefetch_related("subcategories")
     cart_count = 0
     customer = None
     if request is not None:
@@ -163,12 +149,8 @@ def _base_context(request=None):
     )
     context = {
         "site": site,
-        "categories": Category.objects.prefetch_related("subcategories"),
-        "navigation_categories": [
-            navigation_categories_by_title[title]
-            for title in NAVIGATION_CATEGORY_TITLES
-            if title in navigation_categories_by_title
-        ],
+        "categories": categories,
+        "navigation_categories": categories,
         "cart_count": cart_count,
         "customer": customer,
         "shipping_fee": shipping_fee,
@@ -931,22 +913,97 @@ def payment_verification(request, order_id=None):
     return render(request, "store/payment_verification.html", context)
 
 
+def _qr_monogram_font(size):
+    for path in (
+        "C:/Windows/Fonts/arialbd.ttf",
+        "C:/Windows/Fonts/segoeuib.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    ):
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            continue
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def _draw_qr_monogram(image, payee_name):
+    """Stamp the shop's initials into the middle, the way real UPI QRs carry a logo."""
+    draw = ImageDraw.Draw(image)
+    side = max(30, int(image.width * 0.16))
+    left = (image.width - side) // 2
+    top = (image.height - side) // 2
+    inset = max(3, side // 14)
+    draw.rounded_rectangle(
+        (left, top, left + side, top + side),
+        radius=side // 5,
+        fill="white",
+        outline=(214, 209, 194),
+        width=max(2, side // 24),
+    )
+    initials = "".join(word[0] for word in payee_name.split()[:2]).upper() or "UP"
+    font = _qr_monogram_font(int(side * 0.42))
+    box = draw.textbbox((0, 0), initials, font=font)
+    width = box[2] - box[0]
+    height = box[3] - box[1]
+    draw.text(
+        ((image.width - width) / 2 - box[0], (image.height - height) / 2 - box[1]),
+        initials,
+        font=font,
+        fill=(17, 24, 22),
+    )
+    # Keeps the badge sitting on white so the surrounding modules stay scannable.
+    draw.rounded_rectangle(
+        (left - inset, top - inset, left + side + inset, top + side + inset),
+        radius=side // 5,
+        outline="white",
+        width=inset,
+    )
+
+
+def _render_payment_qr(payload, payee_name):
+    """Draw a crisp, shop branded UPI style QR instead of a plain black square."""
+    import segno
+
+    matrix = list(segno.make_qr(payload, error="h").matrix_iter(border=4))
+    scale = 12
+    image = PILImage.new("RGB", (len(matrix[0]) * scale, len(matrix) * scale), "white")
+    draw = ImageDraw.Draw(image)
+    ink = (16, 22, 20)
+    radius = max(2, scale // 3)
+    for y, row in enumerate(matrix):
+        for x, bit in enumerate(row):
+            if not bit:
+                continue
+            left = x * scale
+            top = y * scale
+            # Modules touch edge to edge so scanners read the code as one piece.
+            draw.rounded_rectangle(
+                (left, top, left + scale - 1, top + scale - 1),
+                radius=radius,
+                fill=ink,
+            )
+    _draw_qr_monogram(image, payee_name)
+    buffer = BytesIO()
+    image.save(buffer, format="PNG", optimize=True)
+    return buffer.getvalue()
+
+
 def generate_qr(request):
     site = SiteSettings.objects.first()
     payload = _upi_uri(site)
     try:
-        import segno
-
-        qr = segno.make_qr(payload, error="m")
+        png = _render_payment_qr(payload, _payee_name(site))
     except Exception:
         logger.exception("Could not build the payment QR for %s", payload)
         return HttpResponseNotFound("QR unavailable")
 
-    response = HttpResponse(content_type="image/png")
+    response = HttpResponse(png, content_type="image/png")
     # The payload only changes when staff edit the UPI id or shop name, so the
     # browser can keep serving the same image between the two edits.
     response["Cache-Control"] = "private, max-age=3600"
-    qr.save(response, kind="png", scale=8, border=2)
     return response
 
 
