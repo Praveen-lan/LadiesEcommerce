@@ -11,6 +11,8 @@ from django.template import loader
 from .models import ContactMessage, Saree, SiteSettings, SubCategory
 
 PHONE_RE = re.compile(r"[0-9]{10}")
+MOBILE_RE = re.compile(r"[6-9][0-9]{9}")
+PHONE_ERROR = "Please give correct number."
 WHATSAPP_RE = re.compile(r"\d{10,15}")
 REQUIRED_SITE_FIELDS = ("phone", "email", "address", "map_embed_url", "whatsapp")
 MAP_URL_VALIDATOR = URLValidator(
@@ -73,17 +75,82 @@ class SareeAdminForm(forms.ModelForm):
         fields = "__all__"
 
 
+class PaymentProofForm(forms.Form):
+    """Validates the payment screenshot a customer uploads after scanning the QR."""
+
+    MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
+
+    screenshot = forms.ImageField(
+        required=True,
+        error_messages={"required": "Upload the payment screenshot."},
+    )
+    reference = forms.CharField(
+        required=False,
+        max_length=100,
+        widget=forms.TextInput(attrs={"placeholder": "UPI reference or UTR number (optional)"}),
+    )
+    notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2, "placeholder": "Anything we should know (optional)"}),
+    )
+    order_id = forms.CharField(required=False)
+
+    def clean_screenshot(self):
+        screenshot = self.cleaned_data["screenshot"]
+        if screenshot.size > self.MAX_SCREENSHOT_BYTES:
+            raise ValidationError("The screenshot must be smaller than 5 MB.")
+        return screenshot
+
+
 class ContactForm(forms.ModelForm):
     class Meta:
         model = ContactMessage
         fields = ("name", "email", "phone", "subject", "message")
         widgets = {
-            "name": forms.TextInput(attrs={"class": "form-control", "autocomplete": "name"}),
-            "email": forms.EmailInput(attrs={"class": "form-control", "autocomplete": "email"}),
-            "phone": forms.TextInput(attrs={"class": "form-control", "autocomplete": "tel"}),
-            "subject": forms.TextInput(attrs={"class": "form-control", "placeholder": "How can we help?"}),
-            "message": forms.Textarea(attrs={"class": "form-control", "rows": 6, "placeholder": "Write your enquiry here..."}),
+            "name": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "autocomplete": "name",
+                    "placeholder": "Demo: Priya Raman",
+                }
+            ),
+            "email": forms.EmailInput(
+                attrs={
+                    "class": "form-control",
+                    "autocomplete": "email",
+                    "placeholder": "Demo: priya.raman@example.com",
+                }
+            ),
+            "phone": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "autocomplete": "tel",
+                    "inputmode": "numeric",
+                    "maxlength": "10",
+                    "placeholder": "Demo: 9876543210",
+                }
+            ),
+            "subject": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "Demo: I want to know the delivery time for Kanjivaram silk sarees",
+                }
+            ),
+            "message": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 6,
+                    "placeholder": "Demo: I am looking for a wedding saree that is light weight. Please share the designs and prices.",
+                }
+            ),
         }
+
+    def clean_phone(self):
+        """Optional, but when given it must be a real 10 digit mobile number."""
+        phone = re.sub(r"\D", "", self.cleaned_data.get("phone") or "")
+        if phone and not MOBILE_RE.fullmatch(phone):
+            raise ValidationError(PHONE_ERROR, code="invalid")
+        return phone
 
 
 class SiteSettingsForm(forms.ModelForm):

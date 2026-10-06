@@ -1,9 +1,17 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator, URLValidator
+from django.conf import settings
 from django.db import models
 from django.urls import reverse
-from django.core.validators import URLValidator
+
+from .pricing import GST_RATE, is_valid_discount_percent, price_breakdown, to_amount
+
+# Fallbacks for the two saree card details, used when a saree leaves the field
+# empty so every saree still shows the full set of details.
+DEFAULT_SAREE_LENGTH = "6.3 metres (with blouse piece)"
+DEFAULT_DISPATCH_NOTE = "Ready to ship in 24 hrs"
 
 
 class SiteSettings(models.Model):
@@ -19,6 +27,20 @@ class SiteSettings(models.Model):
     instagram = models.URLField(blank=True)
     twitter = models.URLField(blank=True)
     youtube = models.URLField(blank=True)
+    shipping_fee = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("79.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Delivery charge applied when the order total is below the free delivery limit.",
+    )
+    free_shipping_above = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("999.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Delivery is free at or above this order total, for example 999 makes delivery free from Rs 999.",
+    )
 
     class Meta:
         verbose_name = "Site Settings"
@@ -29,10 +51,21 @@ class SiteSettings(models.Model):
 
 
 class SEO(models.Model):
+    page_name = models.CharField(max_length=120, blank=True)
     site_name = models.CharField(max_length=120, default="Swathi Designers")
     default_title = models.CharField(
         max_length=160,
         default="Swathi Designers | Handloom, Silk and Cotton Sarees",
+    )
+    default_page_description = models.TextField(
+        max_length=300,
+        blank=True,
+        verbose_name="Default description",
+    )
+    meta_title = models.CharField(
+        max_length=160,
+        blank=True,
+        verbose_name="Meta title",
     )
     default_description = models.TextField(
         max_length=160,
@@ -41,19 +74,23 @@ class SEO(models.Model):
     )
     default_keywords = models.CharField(
         max_length=255,
-        verbose_name="Meta Keys",
+        verbose_name="Meta keywords",
         default="sarees, online sarees, handloom sarees, silk sarees, cotton sarees, saree online shopping",
     )
-    google_site_verification = models.CharField(max_length=100, blank=True)
+    google_site_verification = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name="Google site Verification",
+    )
     robots_extra = models.TextField(blank=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated time")
 
     class Meta:
         verbose_name = "SEO Settings"
         verbose_name_plural = "SEO Settings"
 
     def __str__(self):
-        return self.site_name
+        return self.page_name or self.site_name
 
     @classmethod
     def current(cls):
@@ -242,10 +279,44 @@ class Saree(models.Model):
         null=True,
     )
     name = models.CharField(max_length=150)
+    product_id = models.CharField(max_length=60, blank=True, db_index=True)
     slug = models.SlugField(max_length=200, blank=True)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    mrp = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0.00"))])
+    mrp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="The original amount before any discount. This value is never changed by a discount.",
+    )
+    discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        default=None,
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+        help_text=(
+            "Optional. Leave blank to use the price as it is. When set between 0 and 100 the price is "
+            "worked out once as: discount = original amount x this percentage / 100, "
+            "then final amount = original amount - discount."
+        ),
+    )
     fabric = models.CharField(max_length=120, blank=True)
+    length = models.CharField(
+        max_length=120,
+        blank=True,
+        default=DEFAULT_SAREE_LENGTH,
+        help_text="Shown on the saree card, for example 6.3 metres (with blouse piece).",
+    )
+    in_stock = models.BooleanField(default=True, verbose_name="In stock")
+    dispatch_note = models.CharField(
+        max_length=120,
+        blank=True,
+        default=DEFAULT_DISPATCH_NOTE,
+        help_text="Dispatch message shown on the saree card, for example Ready to ship in 24 hrs.",
+    )
     description = models.TextField(blank=True)
     image = models.ImageField(upload_to="sarees/", blank=True)
     image_url = models.URLField(
@@ -276,6 +347,26 @@ class Saree(models.Model):
                     )
                 }
             )
+        if not is_valid_discount_percent(self.discount_percent):
+            raise ValidationError({"discount_percent": "Enter a discount between 0 and 100 percent."})
+        if self.price is not None and Decimal(str(self.price)) < 0:
+            raise ValidationError({"price": "Price cannot be negative."})
+        if self.mrp is not None and Decimal(str(self.mrp)) < 0:
+            raise ValidationError({"mrp": "Original amount cannot be negative."})
+        if (
+            self.discount_percent is None
+            and self.mrp is not None
+            and self.price is not None
+            and Decimal(str(self.mrp)) < Decimal(str(self.price))
+        ):
+            raise ValidationError(
+                {
+                    "mrp": (
+                        f"The original amount is lower than the price of {self.price}. "
+                        "Correct the original amount, or enter a discount percentage to work the price out."
+                    )
+                }
+            )
 
     @property
     def image_source(self):
@@ -287,6 +378,14 @@ class Saree(models.Model):
         return reverse("store:saree_detail", kwargs={"slug": self.slug})
 
     def save(self, *args, **kwargs):
+        if not self.category_id and self.subcategory_id:
+            self.category_id = self.subcategory.category_id
+        if not is_valid_discount_percent(self.discount_percent):
+            raise ValidationError({"discount_percent": "Enter a discount between 0 and 100 percent."})
+        if self.discount_percent is not None:
+            breakdown = self.calculate_price_breakdown()
+            self.mrp = breakdown["original"]
+            self.price = breakdown["final"]
         if not self.slug:
             from django.utils.text import slugify
             base = slugify(self.name)
@@ -298,17 +397,52 @@ class Saree(models.Model):
             self.slug = slug
         super().save(*args, **kwargs)
 
+    def calculate_price_breakdown(self):
+        """Return the original, percent, discount and final amounts for this saree.
+
+        Every screen that shows money reads from this one breakdown, so the
+        product page, cart, checkout, payment and invoice always agree.
+        """
+        if not is_valid_discount_percent(self.discount_percent):
+            raise ValidationError({"discount_percent": "Enter a discount between 0 and 100 percent."})
+        return price_breakdown(self.mrp, self.price, self.discount_percent)
+
     @property
-    def discount_percent(self):
-        if self.mrp and self.mrp > self.price:
-            return round((self.mrp - self.price) / self.mrp * 100)
-        return 0
+    def price_breakdown(self):
+        return self.calculate_price_breakdown()
+
+    @property
+    def original_amount(self):
+        """The price before any discount. Never modified by a discount."""
+        return self.price_breakdown["original"]
+
+    @property
+    def final_amount(self):
+        """The price the customer pays, after the discount has been applied once."""
+        return self.price_breakdown["final"]
+
+    @property
+    def discount_amount(self):
+        """The money taken off the original amount."""
+        return self.price_breakdown["discount"]
+
+    @property
+    def effective_discount_percent(self):
+        """The discount percentage to display, derived when none was entered."""
+        return self.price_breakdown["percent"]
 
     @property
     def savings(self):
-        if self.mrp and self.mrp > self.price:
-            return self.mrp - self.price
-        return 0
+        """Kept for the product page, which shows the money saved."""
+        return self.discount_amount
+
+    @property
+    def card_length(self):
+        return self.length or DEFAULT_SAREE_LENGTH
+
+    @property
+    def card_dispatch_note(self):
+        return self.dispatch_note or DEFAULT_DISPATCH_NOTE
 
 
 class Customer(models.Model):
@@ -406,10 +540,11 @@ class Order(models.Model):
         return f"{self.order_id} - {self.name}"
 
     def recalculate_totals(self):
-        from .cart import GST_RATE, SHIPPING_FEE, SHIPPING_FEE_ABOVE
+        from .cart import shipping_rules
 
         subtotal = sum((item.line_total for item in self.items.all()), Decimal("0"))
-        delivery = SHIPPING_FEE if 0 < subtotal < SHIPPING_FEE_ABOVE else Decimal("0")
+        fee, limit = shipping_rules()
+        delivery = fee if 0 < subtotal < limit else Decimal("0")
         gst = (subtotal * GST_RATE).quantize(Decimal("0.01"))
         self.subtotal = subtotal
         self.delivery_charge = delivery
@@ -432,6 +567,126 @@ class OrderItem(models.Model):
 
     def __str__(self):
         return f"{self.quantity} x {self.name}"
+
+
+class PaymentQR(models.Model):
+    """The payment QR code shown to customers in the payment method section."""
+
+    label = models.CharField(max_length=120, blank=True)
+    image = models.ImageField(upload_to="payment-qr/")
+    upi_id = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="UPI ID used for the automatically generated QR when no image is uploaded.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Only the newest active code is shown to customers.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Payment QR Code"
+        verbose_name_plural = "Payment QR Codes"
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return self.label or f"Payment QR {self.pk}"
+
+    @classmethod
+    def current(cls):
+        """Return the QR to show customers, or ``None`` when none is active."""
+        return cls.objects.filter(is_active=True).order_by("-created_at", "-id").first()
+
+
+class PaymentProof(models.Model):
+    """A payment screenshot uploaded by a customer for staff to verify."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        VERIFIED = "verified", "Payment done"
+        REJECTED = "rejected", "Rejected"
+
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="payment_proofs",
+    )
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="payment_proofs",
+    )
+    customer_name = models.CharField(max_length=150)
+    phone = models.CharField(max_length=30, blank=True)
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="The amount the customer was asked to pay.",
+    )
+    payment_method = models.CharField(
+        max_length=20,
+        choices=Order.PaymentMethod.choices,
+        default=Order.PaymentMethod.QR,
+    )
+    reference = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="UPI reference or UTR number, when the customer has one.",
+    )
+    screenshot = models.ImageField(upload_to="payment-proofs/")
+    notes = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(blank=True, null=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_payment_proofs",
+    )
+
+    class Meta:
+        ordering = ["-submitted_at", "-id"]
+        verbose_name = "Payment Verification"
+        verbose_name_plural = "Payment Verifications"
+
+    def __str__(self):
+        return f"{self.customer_name} - {self.amount}"
+
+    def save(self, *args, **kwargs):
+        if self.order_id:
+            if not self.customer_name:
+                self.customer_name = self.order.name
+            if not self.phone:
+                self.phone = self.order.phone
+            if not self.amount:
+                self.amount = self.order.total
+            if self.order.payment_status == Order.Status.PENDING:
+                self.order.payment_status = Order.Status.PAID
+                self.order.save(update_fields=["payment_status"])
+        super().save(*args, **kwargs)
+
+    @property
+    def order_reference(self):
+        """The order ID, or a clear placeholder when no order is linked."""
+        return self.order.order_id if self.order_id else "Not linked"
+
+    @property
+    def order_details(self):
+        """The sarees and quantities on the linked order, for the admin list."""
+        if not self.order_id:
+            return "No order linked"
+        items = [f"{item.quantity} x {item.name}" for item in self.order.items.all()]
+        return ", ".join(items) if items else "No items on this order"
 
 
 # The starter sub categories every collection is seeded with, in menu order.

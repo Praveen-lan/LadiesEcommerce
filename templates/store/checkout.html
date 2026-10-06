@@ -17,7 +17,7 @@
         {% if cart_items %}
         <div class="row g-4">
             <div class="col-lg-8">
-                <form method="post" id="checkout-form">
+                <form method="post" id="checkout-form" enctype="multipart/form-data">
                     {% csrf_token %}
                     <input type="hidden" name="payment_method" id="payment-method" value="{{ payment_methods.0.0 }}">
                     {% if checkout_error %}<div class="alert alert-danger" role="alert">{{ checkout_error }}</div>{% endif %}
@@ -33,7 +33,7 @@
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label" for="checkout-phone">Phone Number *</label>
-                                    <input type="tel" id="checkout-phone" name="phone" class="form-control" placeholder="10-digit mobile number" inputmode="numeric" maxlength="10" pattern="[0-9]{10}" title="Enter exactly 10 digits." value="{{ checkout_values.phone|default:'' }}" aria-describedby="checkout-phone-error" {% if checkout_error_field == 'phone' %}aria-invalid="true"{% endif %} required>
+                                    <input type="tel" id="checkout-phone" name="phone" class="form-control" placeholder="Demo: 9876543210" inputmode="numeric" maxlength="10" pattern="[6-9][0-9]{9}" title="Enter a 10 digit mobile number starting with 6, 7, 8 or 9." value="{{ checkout_values.phone|default:'' }}" aria-describedby="checkout-phone-error" {% if checkout_error_field == 'phone' %}aria-invalid="true"{% endif %} required>
                                     <div id="checkout-phone-error" class="invalid-feedback{% if checkout_error_field == 'phone' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'phone' %}{{ checkout_error }}{% else %}Please enter a valid 10-digit phone number.{% endif %}</div>
                                 </div>
                                 <div class="col-12">
@@ -77,12 +77,38 @@
         <div class="row g-3 mt-1 align-items-center">
             <div class="col-auto">
                 <div class="qr-box">
-                    <img src="{% url 'store:generate_qr' %}?upi={{ site.whatsapp|default:'sareeelegance@upi' }}" alt="Scan to pay QR">
+                    {% if payment_qr and payment_qr.image %}
+                        <img src="{{ payment_qr.image.url }}" alt="Scan to pay QR">
+                    {% else %}
+                        <img src="{% url 'store:generate_qr' %}" alt="Scan to pay QR">
+                    {% endif %}
                 </div>
             </div>
             <div class="col">
                 <div class="fw-semibold mb-1">Scan &amp; Pay</div>
-                <div class="small text-muted">Open any UPI app, scan this QR and pay <strong>&#8377; {{ totals.total }}</strong>. Your order is confirmed instantly.</div>
+                <div class="small text-muted">Open any UPI app, scan this QR and pay <strong>&#8377; {{ totals.total }}</strong>. Then upload the screenshot below so we can verify it.</div>
+            </div>
+        </div>
+
+        <div class="payment-verification mt-3">
+            <div class="payment-verification-head">
+                <i class="bi bi-file-earmark-image"></i>
+                <div>
+                    <strong>Payment Verification</strong>
+                    <span class="small text-muted d-block">After paying, upload your payment screenshot for verification.</span>
+                </div>
+            </div>
+            <div class="row g-3 align-items-end mt-1">
+                <div class="col-md-6">
+                    <label class="form-label small fw-semibold" for="payment_reference">UPI reference / UTR (optional)</label>
+                    <input type="text" class="form-control" id="payment_reference" name="payment_reference"
+                           value="{{ checkout_values.payment_reference|default:'' }}" placeholder="e.g. 425781230001">
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label small fw-semibold" for="payment_screenshot">Payment screenshot</label>
+                    <input type="file" class="form-control" id="payment_screenshot" name="payment_screenshot"
+                           accept="image/*" required>
+                </div>
             </div>
         </div>
     </div>
@@ -161,7 +187,7 @@
     }
 
     function isValidPhone(value) {
-        return /^[0-9]{10}$/.test(value);
+        return /^[6-9][0-9]{9}$/.test(value);
     }
 
     function showPhoneError() {

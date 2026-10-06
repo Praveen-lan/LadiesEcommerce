@@ -49,7 +49,7 @@
                     <li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'about' or request.resolver_match.url_name == 'about_us' %}active{% endif %}" href="{% url 'store:about' %}"><i class="bi bi-info-circle"></i> About Us</a></li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle {% if request.resolver_match.url_name == 'category_detail' or request.resolver_match.url_name == 'subcategory_detail' or request.resolver_match.url_name == 'catalog' and not query %}active{% endif %}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="bi bi-collection"></i> Collections
+                            <i class="bi bi-collection"></i> Collection&amp;Services
                         </a>
                         <ul class="dropdown-menu collections-menu">
                             {% for cat in categories %}
@@ -63,7 +63,7 @@
                 </ul>
                 <div class="d-flex align-items-center gap-2">
                     <form action="{% url 'store:catalog' %}" method="get" class="nav-search" role="search">
-                        <input class="nav-search-input" type="search" name="q" placeholder="Search sarees..." value="{{ query|default:'' }}" aria-label="Search sarees">
+                        <input class="nav-search-input" type="search" name="q" placeholder="Search...." value="{{ query|default:'' }}" aria-label="Search sarees">
                         <button class="nav-search-btn" type="submit" aria-label="Search"><i class="bi bi-search"></i></button>
                     </form>
                     <a href="{% url 'store:cart' %}" class="cart-link" title="View cart">
@@ -131,7 +131,6 @@
                         {% if site.instagram %}<a href="{{ site.instagram }}" target="_blank" rel="noopener" aria-label="Instagram"><i class="bi bi-instagram"></i></a>{% endif %}
                         {% if site.twitter %}<a href="{{ site.twitter }}" target="_blank" rel="noopener" aria-label="Twitter"><i class="bi bi-twitter-x"></i></a>{% endif %}
                         {% if site.youtube %}<a href="{{ site.youtube }}" target="_blank" rel="noopener" aria-label="YouTube"><i class="bi bi-youtube"></i></a>{% endif %}
-                        {% if site.whatsapp %}<a href="https://wa.me/{{ site.whatsapp }}" target="_blank" rel="noopener" aria-label="WhatsApp"><i class="bi bi-whatsapp"></i></a>{% endif %}
                     </div>
                 </div>
                 <div class="col-lg-4 col-md-6">
@@ -166,6 +165,13 @@
             </div>
         </div>
     </footer>
+
+    {% if site.whatsapp %}
+    <a href="https://wa.me/{{ site.whatsapp }}" target="_blank" rel="noopener" class="whatsapp-float" aria-label="Chat with us on WhatsApp">
+        <span class="whatsapp-float-label">{{ site.whatsapp }}</span>
+        <span class="whatsapp-float-icon"><i class="bi bi-whatsapp"></i></span>
+    </a>
+    {% endif %}
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>

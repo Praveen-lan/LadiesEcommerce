@@ -17,8 +17,8 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.utils.safestring import mark_safe
 from PIL import Image as PILImage
-from .cart import Cart, FREE_SHIPPING_ABOVE
-from .forms import ContactForm, PasswordResetForm
+from .cart import Cart, shipping_rules
+from .forms import ContactForm, PasswordResetForm, PaymentProofForm
 from .models import (
     AboutPage,
     Banner,
@@ -26,6 +26,8 @@ from .models import (
     Customer,
     Order,
     OrderItem,
+    PaymentProof,
+    PaymentQR,
     Saree,
     SEO,
     SiteSettings,
@@ -36,6 +38,8 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 PROFILE_LOGO_SIZE = (300, 300)
+
+PHONE_ERROR = "Please give correct number."
 
 CHECKOUT_PAYMENT_METHODS = ((Order.PaymentMethod.QR, Order.PaymentMethod.QR.label),)
 
@@ -125,6 +129,7 @@ def _seo_context(request, site=None, seo=None, title=None, description=None, key
 def _base_context(request=None):
     site = SiteSettings.objects.first()
     seo = SEO.current() or SEO()
+    shipping_fee, free_shipping_above = shipping_rules()
     cart_count = 0
     customer = None
     if request is not None:
@@ -140,6 +145,8 @@ def _base_context(request=None):
         "categories": Category.objects.prefetch_related("subcategories"),
         "cart_count": cart_count,
         "customer": customer,
+        "shipping_fee": shipping_fee,
+        "free_shipping_above": free_shipping_above,
     }
     context.update(_seo_context(request, site=site, seo=seo, noindex=noindex))
     return context
@@ -214,8 +221,8 @@ def login_view(request):
 
         if len(name) < 2:
             error = "Please enter your name."
-        elif not re.fullmatch(r"[0-9+()\-\s]{10,20}", phone) or len(digits) < 10:
-            error = "Please enter a valid phone number."
+        elif not _is_valid_mobile(digits):
+            error = PHONE_ERROR
         elif customer and not _customer_name_matches(customer, name):
             error = "This mobile number is already registered under a different name."
         elif customer is None:
@@ -308,8 +315,8 @@ def profile(request):
 
         if len(name) < 2:
             error = "Please enter your name."
-        elif len(digits) < 10:
-            error = "Please enter a valid phone number."
+        elif not _is_valid_mobile(digits):
+            error = PHONE_ERROR
         else:
             taken = Customer.objects.filter(phone=digits).exclude(pk=customer.pk).exists()
             if taken:
@@ -560,8 +567,10 @@ def saree_detail(request, slug):
         "offers": {
             "@type": "Offer",
             "priceCurrency": "INR",
-            "price": str(saree.price),
-            "availability": "https://schema.org/InStock",
+            "price": str(saree.final_amount),
+            "availability": (
+                "https://schema.org/InStock" if saree.in_stock else "https://schema.org/OutOfStock"
+            ),
             "url": canonical_url,
         },
     }
@@ -587,8 +596,11 @@ def add_to_cart(request):
         quantity = request.POST.get("quantity", 1)
         saree = get_object_or_404(Saree, pk=saree_id)
         cart = Cart(request)
-        cart.add(saree.id, quantity)
-        messages.success(request, f'"{saree.name}" added to your cart.')
+        if not saree.in_stock:
+            messages.error(request, f'"{saree.name}" is out of stock and cannot be added to your cart.')
+        else:
+            cart.add(saree.id, quantity)
+            messages.success(request, f'"{saree.name}" added to your cart.')
         redirect_back = request.POST.get("redirect") or "store:catalog"
         if redirect_back == "store:cart":
             return redirect("store:cart")
@@ -602,7 +614,6 @@ def cart_view(request):
     context["cart_items"] = cart.items()
     context["totals"] = cart.totals()
     context["cart_counts"] = cart.count()
-    context["free_ship_above"] = FREE_SHIPPING_ABOVE
     return render(request, "store/cart.html", context)
 
 
@@ -645,7 +656,7 @@ def checkout(request):
             checkout_error = "Please enter a valid name."
             checkout_error_field = "name"
         elif not _is_valid_checkout_phone(phone):
-            checkout_error = "Please enter a valid 10-digit phone number."
+            checkout_error = PHONE_ERROR
             checkout_error_field = "phone"
         elif not _is_valid_checkout_place(city):
             checkout_error = "Please enter a valid city name."
@@ -671,7 +682,9 @@ def checkout(request):
                         "city": city,
                         "state": state,
                         "pincode": pincode,
+                        "payment_reference": request.POST.get("payment_reference", ""),
                     },
+                    "payment_qr": PaymentQR.current(),
                 }
             )
             return render(request, "store/checkout.html", context)
@@ -703,16 +716,30 @@ def checkout(request):
                 order=order,
                 saree=item["saree"],
                 name=item["saree"].name,
-                price=item["saree"].price,
+                price=item["saree"].final_amount,
                 quantity=item["quantity"],
             )
+        screenshot = request.FILES.get("payment_screenshot")
+        if screenshot:
+            PaymentProof(
+                order=order,
+                customer=_customer(request),
+                customer_name=order.name,
+                phone=order.phone,
+                amount=order.total,
+                payment_method=order.payment_method,
+                reference=(request.POST.get("payment_reference") or "").strip(),
+                screenshot=screenshot,
+            ).save()
         cart.clear()
+        request.session["last_order_id"] = order.order_id
         return redirect("store:order_success", order_id=order.order_id)
     totals = cart.totals()
     context = _base_context(request)
     context["cart_items"] = items
     context["totals"] = totals
     context["payment_methods"] = CHECKOUT_PAYMENT_METHODS
+    context["payment_qr"] = PaymentQR.current()
     return render(request, "store/checkout.html", context)
 
 
@@ -730,7 +757,12 @@ def _is_valid_checkout_name(name):
 
 
 def _is_valid_checkout_phone(phone):
-    return re.fullmatch(r"[0-9]{10}", phone) is not None
+    return _is_valid_mobile(re.sub(r"\D", "", phone or ""))
+
+
+def _is_valid_mobile(digits):
+    """True only for an Indian mobile number: 10 digits starting 6-9."""
+    return re.fullmatch(r"[6-9][0-9]{9}", digits or "") is not None
 
 
 def _is_valid_checkout_place(value):
@@ -750,11 +782,80 @@ def order_success(request, order_id):
     order = get_object_or_404(Order, order_id=order_id)
     context = _base_context(request)
     context["order"] = order
+    context["payment_qr"] = PaymentQR.current()
+    proof_form = PaymentProofForm(initial={"order_id": order.order_id})
+    context["proof_form"] = proof_form
+    context["proofs"] = order.payment_proofs.all()
     return render(request, "store/order_success.html", context)
 
 
+def _customer_owns_order(request, customer, order):
+    """Only the shopper who placed an order may attach a payment screenshot.
+
+    A phone number typed at checkout may differ from the profile number, so the
+    order placed in this session counts as theirs too.
+    """
+    if order is None:
+        return True
+    if request.session.get("last_order_id") == order.order_id:
+        return True
+    phone = getattr(customer, "phone", "")
+    return bool(phone) and order.phone == phone
+
+
+def payment_verification(request, order_id=None):
+    """Let a customer upload the payment screenshot for staff to verify.
+
+    The screenshot is stored against the order so the admin list always shows
+    who paid, which order it covers, the amount and when it arrived.
+    """
+    customer = _customer(request)
+    order = None
+    requested_order_id = order_id or request.POST.get("order_id") or ""
+    if requested_order_id:
+        order = get_object_or_404(Order, order_id=requested_order_id)
+        if not _customer_owns_order(request, customer, order):
+            raise Http404("No order matches this account.")
+
+    initial = {"order_id": order.order_id if order else ""}
+    if request.method == "POST":
+        form = PaymentProofForm(request.POST, request.FILES)
+        if form.is_valid():
+            if order is None:
+                # Fall back to the shopper's most recent order so the upload is
+                # never lost, even if the order ID field was left blank.
+                order = (
+                    Order.objects.filter(phone=getattr(customer, "phone", "")).order_by("-created_at").first()
+                )
+            proof = PaymentProof(
+                order=order,
+                customer=customer,
+                customer_name=(getattr(customer, "name", "") or (order.name if order else "") or "Guest"),
+                phone=(order.phone if order else getattr(customer, "phone", "")),
+                amount=order.total if order else Decimal("0.00"),
+                payment_method=order.payment_method if order else Order.PaymentMethod.QR,
+                reference=form.cleaned_data.get("reference", ""),
+                notes=form.cleaned_data.get("notes", ""),
+                screenshot=form.cleaned_data["screenshot"],
+            )
+            proof.save()
+            messages.success(request, "Payment screenshot received. We will verify it shortly.")
+            if order is not None:
+                return redirect("store:order_success", order_id=order.order_id)
+            return redirect("store:home")
+    else:
+        form = PaymentProofForm(initial=initial)
+
+    context = _base_context(request)
+    context.update({"form": form, "order": order, "payment_qr": PaymentQR.current()})
+    return render(request, "store/payment_verification.html", context)
+
+
 def generate_qr(request):
-    mail = request.GET.get("upi", "sareeelegance@upi")
+    mail = request.GET.get("upi", "")
+    if not mail:
+        code = PaymentQR.current()
+        mail = (code.upi_id if code else "") or "sareeelegance@upi"
     try:
         import segno
 
@@ -770,11 +871,17 @@ def generate_qr(request):
 
 
 def new_order_id():
-    date_id = timezone.localdate().strftime("%Y%m%d")
-    if not Order.objects.filter(order_id=date_id).exists():
-        return date_id
-    for suffix in range(2, 100):
-        candidate = f"{date_id}-{suffix}"
-        if not Order.objects.filter(order_id=candidate).exists():
+    """Build today's order ID as ``YYYYMMDD`` + a zero padded 4 digit sequence.
+
+    The first order placed on a day gets ``0001``, the next ``0002`` and so on,
+    so every ID is 12 characters long and sorts chronologically as text.
+    """
+    prefix = timezone.localdate().strftime("%Y%m%d")
+    taken = set(
+        Order.objects.filter(order_id__startswith=prefix).values_list("order_id", flat=True)
+    )
+    for sequence in range(1, 10000):
+        candidate = f"{prefix}{sequence:04d}"
+        if candidate not in taken:
             return candidate
-    return f"{date_id}-{uuid.uuid4().hex[:4]}"
+    return f"{prefix}{uuid.uuid4().hex[:4]}"

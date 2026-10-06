@@ -1,11 +1,34 @@
 from decimal import Decimal
 
-from .models import Saree
+from .models import Saree, SiteSettings
+from .pricing import (
+    FREE_SHIPPING_ABOVE,
+    GST_RATE,
+    SHIPPING_FEE,
+    SHIPPING_FEE_ABOVE,
+    to_amount,
+)
 
-GST_RATE = Decimal("0.05")
-FREE_SHIPPING_ABOVE = Decimal("1499")
-SHIPPING_FEE = Decimal("79")
-SHIPPING_FEE_ABOVE = Decimal("999")
+__all__ = [
+    "Cart",
+    "GST_RATE",
+    "FREE_SHIPPING_ABOVE",
+    "SHIPPING_FEE",
+    "SHIPPING_FEE_ABOVE",
+    "shipping_rules",
+]
+
+
+def shipping_rules():
+    """Return the (delivery fee, free delivery limit) pair to charge with.
+
+    The values come from Site Settings so they can be changed from the admin,
+    and fall back to the built-in defaults when no settings row exists yet.
+    """
+    settings = SiteSettings.objects.first()
+    if settings is None:
+        return SHIPPING_FEE, SHIPPING_FEE_ABOVE
+    return to_amount(settings.shipping_fee), to_amount(settings.free_shipping_above)
 
 
 class Cart:
@@ -88,15 +111,23 @@ class Cart:
                 continue
             if saree is None or qty <= 0:
                 continue
-            result.append({"saree": saree, "quantity": qty, "line_total": saree.price * qty})
+            result.append(
+                {
+                    "saree": saree,
+                    "quantity": qty,
+                    "final_amount": saree.final_amount,
+                    "line_total": saree.final_amount * qty,
+                }
+            )
         return result
 
     def totals(self):
         items = self.items()
         subtotal = sum((i["line_total"] for i in items), Decimal("0"))
+        fee, limit = shipping_rules()
         delivery = Decimal("0")
-        if 0 < subtotal < SHIPPING_FEE_ABOVE:
-            delivery = SHIPPING_FEE
+        if 0 < subtotal < limit:
+            delivery = fee
         gst = (subtotal * GST_RATE).quantize(Decimal("0.01"))
         total = (subtotal + delivery + gst).quantize(Decimal("0.01"))
         return {
@@ -104,5 +135,8 @@ class Cart:
             "delivery": delivery,
             "gst": gst,
             "total": total,
-            "free_shipping_message": subtotal > 0 and subtotal < FREE_SHIPPING_ABOVE,
+            "delivery_fee": fee,
+            "free_shipping_above": limit,
+            "amount_to_free_shipping": max(limit - subtotal, Decimal("0.00")),
+            "free_shipping_message": subtotal > 0 and subtotal < limit,
         }

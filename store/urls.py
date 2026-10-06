@@ -13,6 +13,7 @@ from .views import (
     login_view,
     logout_view,
     order_success,
+    payment_verification,
     profile,
     remove_from_cart,
     robots_txt,
@@ -45,6 +46,8 @@ urlpatterns = [
     path("cart/update/<int:saree_id>/", update_cart, name="update_cart"),
     path("cart/remove/<int:saree_id>/", remove_from_cart, name="remove_from_cart"),
     path("checkout/", checkout, name="checkout"),
+    path("payment-verification/", payment_verification, name="payment_verification"),
+    path("payment-verification/<order_id:order_id>/", payment_verification, name="payment_verification_order"),
     path("qr.png", generate_qr, name="generate_qr"),
     path("order/<order_id:order_id>/", order_success, name="order_success"),
 ]

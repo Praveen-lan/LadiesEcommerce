@@ -294,7 +294,7 @@ def test_collection_page_displays_subcategories_as_image_cards_and_keeps_all_sar
 
 
 @pytest.mark.django_db
-def test_saree_page_shows_its_subcategory_in_the_breadcrumb(
+def test_saree_page_links_to_its_subcategory_without_a_breadcrumb(
     signed_in, silk_category, silk_subcategory
 ):
     saree = Saree.objects.create(
@@ -307,6 +307,7 @@ def test_saree_page_shows_its_subcategory_in_the_breadcrumb(
 
     content = signed_in.get(saree.get_absolute_url()).content.decode()
 
+    assert "<ol class=\"breadcrumb\">" not in content
     assert silk_subcategory.get_absolute_url() in content
     assert silk_subcategory.title in content
 

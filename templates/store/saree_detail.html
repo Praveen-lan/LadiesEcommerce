@@ -6,16 +6,6 @@
 
 <section class="detail-wrap">
     <div class="container">
-<nav aria-label="breadcrumb" class="pt-3">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="{% url 'store:home' %}">Home</a></li>
-                <li class="breadcrumb-item"><a href="{% url 'store:catalog' %}">Catalog</a></li>
-                <li class="breadcrumb-item"><a href="{% url 'store:category_detail' saree.category.slug %}">{{ saree.category.title }}</a></li>
-                {% if saree.subcategory %}<li class="breadcrumb-item"><a href="{% url 'store:subcategory_detail' saree.category.slug saree.subcategory.slug %}">{{ saree.subcategory.title }}</a></li>{% endif %}
-                <li class="breadcrumb-item active" aria-current="page">{{ saree.name|truncatechars:32 }}</li>
-            </ol>
-        </nav>
-
         <div class="row g-5">
             <div class="col-lg-6">
                 <div class="detail-image">
@@ -30,18 +20,26 @@
                     <h1 class="detail-title">{{ saree.name }}</h1>
 
                     <div class="detail-price">
-                        <span class="price-now">&#8377; {{ saree.price }}</span>
-                        {% if saree.mrp %}<span class="price-mrp">&#8377; {{ saree.mrp }}</span>{% endif %}
-                        {% if saree.discount_percent %}
-                        <span class="price-off">You save &#8377; {{ saree.savings }} ({{ saree.discount_percent }}%)</span>
+                        <span class="price-now">&#8377; {{ saree.final_amount }}</span>
+                        {% if saree.discount_amount %}<span class="price-mrp">&#8377; {{ saree.original_amount }}</span>{% endif %}
+                        {% if saree.discount_amount %}
+                        <span class="price-off">{{ saree.effective_discount_percent }}% off &mdash; you save &#8377; {{ saree.discount_amount }}</span>
                         {% endif %}
                     </div>
 
                     <div class="detail-meta">
-                        <div class="meta-row"><span>Fabric</span><strong>{{ saree.fabric|default:"Premium Weave" }}</strong></div>
-                        <div class="meta-row"><span>Length</span><strong>6.3 metres (with blouse piece)</strong></div>
-                        <div class="meta-row"><span>In Stock</span><strong class="text-success">Ready to ship in 24 hrs</strong></div>
-                        <div class="meta-row"><span>Delivery</span><strong>Free above &#8377; 999</strong></div>
+                        <div class="meta-row"><span>Fabric</span><strong>{{ saree.fabric|default:saree.category.title }}</strong></div>
+                        <div class="meta-row"><span>Length</span><strong>{{ saree.card_length }}</strong></div>
+                        <div class="meta-row">
+                            <span>{% if saree.in_stock %}In Stock{% else %}Availability{% endif %}</span>
+                            <strong class="{% if saree.in_stock %}text-success{% else %}text-danger{% endif %}">
+                                {% if saree.in_stock %}In Stock{% else %}Out of Stock{% endif %}
+                            </strong>
+                        </div>
+                        {% if saree.in_stock and saree.card_dispatch_note %}
+                        <div class="meta-row"><span>Dispatch</span><strong>{{ saree.card_dispatch_note }}</strong></div>
+                        {% endif %}
+                        <div class="meta-row"><span>Delivery</span><strong>Free above &#8377; {{ free_shipping_above }}</strong></div>
                     </div>
 
                     <div class="detail-desc">

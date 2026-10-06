@@ -1,8 +1,10 @@
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
+from django.db import models
 from django.http import HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.http import unquote
 from django import forms
@@ -17,6 +19,8 @@ from .models import (
     Order,
     OrderItem,
     OTPRequest,
+    PaymentProof,
+    PaymentQR,
     Saree,
     SEO,
     SiteSettings,
@@ -69,6 +73,42 @@ admin.site.site_header = "Swathi Designers Admin"
 admin.site.site_title = "Swathi Designers Admin"
 admin.site.index_title = "Store Management"
 
+
+def blank_text_initial(form):
+    """Clear the pre-filled text on an unsaved form so "+ Add" opens empty.
+
+    Django fills a new form with each field's model default, which for this
+    project is long boilerplate copy - the About Page story, the whole Terms
+    text, the default SEO title and keywords. Staff adding a new record want
+    empty boxes, so those are dropped here. Only free-text boxes are cleared:
+    numbers, checkboxes and choice dropdowns keep their defaults because they
+    are required fields and blanking them would block saving. Model defaults
+    stay untouched for the code paths that build unsaved instances directly.
+    """
+    if form.instance.pk is not None:
+        return
+    for name, field in form.fields.items():
+        model_field = form._meta.model._meta.get_field(name)
+        if not isinstance(field.widget, (forms.CheckboxInput, forms.RadioSelect, forms.Select)):
+            if isinstance(model_field, (models.CharField, models.TextField)):
+                field.initial = ""
+                field.widget.attrs.setdefault("placeholder", "")
+
+
+class BlankTextOnAddMixin:
+    """Applies :func:`blank_text_initial` to a ModelAdmin's add form."""
+
+    def get_form(self, request, obj=None, **kwargs):
+        form_class = super().get_form(request, obj, **kwargs)
+
+        class BlankOnAddForm(form_class):
+            def __init__(self, *args, **inner_kwargs):
+                super().__init__(*args, **inner_kwargs)
+                blank_text_initial(self)
+
+        BlankOnAddForm.__name__ = form_class.__name__
+        return BlankOnAddForm
+
 # Static path of the helper that routes the object "Delete" button to the ticked
 # inline rows. It must stay a plain static path: Django percent-encodes a "?"
 # inside the path, which turns a cache-busting query string into a 404 and
@@ -78,7 +118,7 @@ SUBCATEGORY_FILTER_JS = "store/admin/subcategory-filter.js"
 
 
 @admin.register(AboutPage)
-class AboutPageAdmin(admin.ModelAdmin):
+class AboutPageAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_display = ("title", "updated_at")
     readonly_fields = ("updated_at",)
 
@@ -87,7 +127,7 @@ class AboutPageAdmin(admin.ModelAdmin):
 
 
 @admin.register(TermsPage)
-class TermsPageAdmin(admin.ModelAdmin):
+class TermsPageAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_display = ("title", "updated_at")
     readonly_fields = ("updated_at",)
 
@@ -99,7 +139,7 @@ class TermsPageAdmin(admin.ModelAdmin):
 
 
 @admin.register(ContactMessage)
-class ContactMessageAdmin(admin.ModelAdmin):
+class ContactMessageAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_display = ("name", "email", "subject", "is_read", "created_at")
     list_filter = ("is_read", "created_at")
     search_fields = ("name", "email", "phone", "subject", "message")
@@ -108,14 +148,14 @@ class ContactMessageAdmin(admin.ModelAdmin):
 
 
 @admin.register(Customer)
-class CustomerAdmin(admin.ModelAdmin):
+class CustomerAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_display = ("name", "phone", "email", "profile_image", "created_at")
     search_fields = ("name", "phone", "email")
     list_filter = ("created_at",)
 
 
 @admin.register(OTPRequest)
-class OTPRequestAdmin(admin.ModelAdmin):
+class OTPRequestAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_display = ("phone", "code", "is_verified", "attempts", "expires_at", "created_at")
     list_filter = ("is_verified",)
     search_fields = ("phone", "code")
@@ -131,7 +171,7 @@ class OTPRequestAdmin(admin.ModelAdmin):
         return True
 
 
-class OrderItemInline(admin.TabularInline):
+class OrderItemInline(BlankTextOnAddMixin, admin.TabularInline):
     model = OrderItem
     extra = 0
     can_delete = True
@@ -150,7 +190,7 @@ class OrderItemInline(admin.TabularInline):
 
 
 @admin.register(Order)
-class OrderAdmin(admin.ModelAdmin):
+class OrderAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_display = ("order_id", "name", "phone", "payment_method", "payment_status", "status", "total", "created_at")
     list_filter = ("payment_method", "payment_status", "status")
     search_fields = ("order_id", "name", "phone", "email")
@@ -283,13 +323,13 @@ class OrderAdmin(admin.ModelAdmin):
 
 
 @admin.register(OrderItem)
-class OrderItemAdmin(admin.ModelAdmin):
+class OrderItemAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_display = ("order", "name", "price", "quantity", "line_total")
     search_fields = ("name", "order__order_id")
 
 
 @admin.register(SiteSettings)
-class SiteSettingsAdmin(admin.ModelAdmin):
+class SiteSettingsAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     form = SiteSettingsForm
     list_display = ("shop_name", "phone", "email")
 
@@ -300,9 +340,45 @@ class SiteSettingsAdmin(admin.ModelAdmin):
         return False
 
 
+class SEOAdminForm(forms.ModelForm):
+    """Field list for SEO Settings; :class:`BlankTextOnAddMixin` blanks it."""
+
+    class Meta:
+        model = SEO
+        fields = (
+            "page_name",
+            "site_name",
+            "default_title",
+            "default_page_description",
+            "meta_title",
+            "default_description",
+            "default_keywords",
+            "google_site_verification",
+        )
+
+
 @admin.register(SEO)
-class SEOAdmin(admin.ModelAdmin):
-    list_display = ("site_name", "updated_at")
+class SEOAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
+    """One row per SEO setup; the newest added row is the one the site uses.
+
+    ``robots_extra`` is kept in the database (robots.txt still reads it) but is
+    hidden from the form so the page only shows the meta tag settings.
+    """
+
+    form = SEOAdminForm
+    fields = (
+        "page_name",
+        "site_name",
+        "default_title",
+        "default_page_description",
+        "meta_title",
+        "default_description",
+        "default_keywords",
+        "google_site_verification",
+        "updated_at",
+    )
+    list_display = ("page_name", "site_name", "updated_at")
+    search_fields = ("page_name", "site_name")
     readonly_fields = ("updated_at",)
 
     def has_delete_permission(self, request, obj=None):
@@ -312,9 +388,24 @@ class SEOAdmin(admin.ModelAdmin):
 class SareeInlineForm(forms.ModelForm):
     class Meta:
         model = Saree
-        fields = ("name", "price", "mrp", "fabric", "description", "image", "image_url", "is_featured")
+        fields = (
+            "name",
+            "product_id",
+            "price",
+            "mrp",
+            "discount_percent",
+            "fabric",
+            "length",
+            "in_stock",
+            "dispatch_note",
+            "description",
+            "image",
+            "image_url",
+            "is_featured",
+        )
         widgets = {
             "image_url": forms.URLInput(attrs={"placeholder": "https://example.com/image.jpg"}),
+            "product_id": forms.TextInput(attrs={"placeholder": "e.g. SD-SRK-1001"}),
         }
 
     def __init__(self, *args, **kwargs):
@@ -324,7 +415,7 @@ class SareeInlineForm(forms.ModelForm):
                 field.disabled = name != "is_featured"
 
 
-class SubCategoryInline(admin.TabularInline):
+class SubCategoryInline(BlankTextOnAddMixin, admin.TabularInline):
     """Sub categories are created straight from the category they belong to."""
 
     model = SubCategory
@@ -340,12 +431,27 @@ class SubCategoryInline(admin.TabularInline):
         return obj.sarees.count() if obj.pk else "-"
 
 
-class SareeInline(admin.TabularInline):
+class SareeInline(BlankTextOnAddMixin, admin.TabularInline):
     model = Saree
     form = SareeInlineForm
     extra = 0
     can_delete = True
-    fields = ("name", "price", "mrp", "fabric", "description", "image", "image_url", "is_featured", "remove_saree")
+    fields = (
+            "name",
+            "product_id",
+            "price",
+            "mrp",
+            "discount_percent",
+            "fabric",
+            "length",
+            "in_stock",
+            "dispatch_note",
+            "description",
+            "image",
+            "image_url",
+            "is_featured",
+            "remove_saree",
+        )
     show_change_link = False
 
     def get_readonly_fields(self, request, obj=None):
@@ -360,7 +466,7 @@ class SareeInline(admin.TabularInline):
 
 
 @admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
+class CategoryAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     form = CategoryAdminForm
     list_display = ("title", "tier", "order", "saree_count", "subcategory_count")
     list_filter = ("tier",)
@@ -468,7 +574,7 @@ class CategoryAdmin(admin.ModelAdmin):
         return super().delete_view(request, object_id, extra_context)
 
 
-class SubCategorySareeInline(admin.TabularInline):
+class SubCategorySareeInline(BlankTextOnAddMixin, admin.TabularInline):
     """Lets staff file existing sarees into a sub category from its own page."""
 
     model = Saree
@@ -476,11 +582,24 @@ class SubCategorySareeInline(admin.TabularInline):
     fk_name = "subcategory"
     extra = 0
     can_delete = True
-    fields = ("name", "price", "mrp", "fabric", "image", "image_url", "is_featured")
+    fields = (
+        "name",
+        "product_id",
+        "price",
+        "mrp",
+        "discount_percent",
+        "fabric",
+        "length",
+        "in_stock",
+        "dispatch_note",
+        "image",
+        "image_url",
+        "is_featured",
+    )
 
 
 @admin.register(SubCategory)
-class SubCategoryAdmin(admin.ModelAdmin):
+class SubCategoryAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     form = SubCategoryAdminForm
     list_display = ("title", "category", "order", "saree_count")
     list_filter = ("category",)
@@ -494,17 +613,145 @@ class SubCategoryAdmin(admin.ModelAdmin):
 
 
 @admin.register(Saree)
-class SareeAdmin(admin.ModelAdmin):
+class SareeAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     form = SareeAdminForm
-    list_display = ("name", "category", "subcategory", "price", "mrp", "is_featured", "created_at")
-    list_filter = ("category", "subcategory", "is_featured")
-    search_fields = ("name", "description", "fabric")
+    list_display = (
+        "name",
+        "product_id",
+        "category",
+        "subcategory",
+        "final_amount",
+        "original_amount",
+        "in_stock",
+        "created_at",
+    )
+    list_filter = ("category", "subcategory", "is_featured", "in_stock")
+    search_fields = ("name", "product_id", "description", "fabric")
+
+    @admin.display(description="Final amount", ordering="price")
+    def final_amount(self, obj):
+        return f"Rs {obj.final_amount}"
+
+    @admin.display(description="Original amount", ordering="mrp")
+    def original_amount(self, obj):
+        return f"Rs {obj.original_amount}"
 
     class Media:
         js = (SUBCATEGORY_FILTER_JS,)
 
 
+@admin.register(PaymentQR)
+class PaymentQRAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
+    """Lets staff upload the payment QR code shown in the payment method section."""
+
+    list_display = ("qr_thumbnail", "label", "upi_id", "is_active", "updated_at")
+    list_editable = ("is_active",)
+    readonly_fields = ("created_at", "updated_at")
+    fields = ("image", "label", "upi_id", "is_active", "created_at", "updated_at")
+
+    @admin.display(description="QR")
+    def qr_thumbnail(self, obj):
+        if not obj.image:
+            return "No image"
+        return format_html('<img src="{}" style="height:60px;border:1px solid #e4dec6;border-radius:6px;">', obj.image.url)
+
+    def has_add_permission(self, request):
+        # One code at a time keeps the payment screen unambiguous; edit it instead.
+        return not PaymentQR.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(PaymentProof)
+class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
+    """Every uploaded payment screenshot, with who paid, what for and when."""
+
+    list_display = (
+        "submitted_at",
+        "customer_name",
+        "phone",
+        "order_reference",
+        "order_summary",
+        "amount",
+        "payment_method",
+        "payment_state",
+        "screenshot_link",
+    )
+    list_filter = ("status", "payment_method", "submitted_at")
+    search_fields = ("customer_name", "phone", "reference", "order__order_id", "order__name")
+    date_hierarchy = "submitted_at"
+    ordering = ("-submitted_at", "-id")
+    readonly_fields = ("submitted_at", "reviewed_at", "reviewed_by", "order_details", "order_summary", "screenshot_link")
+    fields = (
+        "customer_name",
+        "phone",
+        "order",
+        "order_details",
+        "amount",
+        "payment_method",
+        "reference",
+        "screenshot",
+        "screenshot_link",
+        "notes",
+        "status",
+        "reviewed_by",
+        "reviewed_at",
+        "submitted_at",
+    )
+    actions = ("mark_verified", "mark_rejected", "mark_pending")
+
+    @admin.display(description="Order details")
+    def order_summary(self, obj):
+        text = obj.order_details
+        return text if len(text) <= 60 else text[:57] + "..."
+
+    @admin.display(description="Payment status", ordering="status")
+    def payment_state(self, obj):
+        """A paid order reads "Payment done"; the screenshot still stays listed."""
+        if obj.order_id and obj.order.payment_status == Order.Status.PAID:
+            return "Payment done"
+        return obj.get_status_display()
+
+    @admin.display(description="Screenshot")
+    def screenshot_link(self, obj):
+        if not obj.screenshot:
+            return "No file"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener"><img src="{}" style="height:46px;border:1px solid #e4dec6;border-radius:6px;"></a>',
+            obj.screenshot.url,
+            obj.screenshot.url,
+        )
+
+    @admin.action(description="Mark selected as verified")
+    def mark_verified(self, request, queryset):
+        self._set_status(request, queryset, PaymentProof.Status.VERIFIED)
+
+    @admin.action(description="Mark selected as rejected")
+    def mark_rejected(self, request, queryset):
+        self._set_status(request, queryset, PaymentProof.Status.REJECTED)
+
+    @admin.action(description="Mark selected as pending")
+    def mark_pending(self, request, queryset):
+        self._set_status(request, queryset, PaymentProof.Status.PENDING)
+
+    def _set_status(self, request, queryset, status):
+        changed = 0
+        for proof in queryset:
+            proof.status = status
+            proof.reviewed_at = timezone.now()
+            proof.reviewed_by = request.user
+            proof.save(update_fields=["status", "reviewed_at", "reviewed_by"])
+            changed += 1
+        self.message_user(request, f"{changed} payment verification(s) updated.")
+
+    def save_model(self, request, obj, form, change):
+        obj.reviewed_by = request.user
+        obj.reviewed_at = timezone.now()
+        super().save_model(request, obj, form, change)
+
+
 @admin.register(Banner)
-class BannerAdmin(admin.ModelAdmin):
+class BannerAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_display = ("title", "is_active", "order")
     list_filter = ("is_active",)
