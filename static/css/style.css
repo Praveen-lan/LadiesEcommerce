@@ -507,6 +507,26 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
     .main-navbar .btn-gold { font-size: .78rem; }
 }
 
+@media (min-width: 992px) {
+    .main-navbar .collections-menu { max-height: none; overflow: visible; }
+    .main-navbar .collection-submenu {
+        position: absolute; top: 0; left: 100%; width: 260px; height: min(70vh, 252px);
+        box-sizing: border-box; overflow-y: auto; overflow-x: hidden;
+        scrollbar-width: none; -ms-overflow-style: none;
+        margin: 0; padding: 8px; border-radius: 12px;
+        background: #fff; box-shadow: 0 12px 30px rgba(0,0,0,.15);
+    }
+    .main-navbar .collection-submenu::-webkit-scrollbar { display: none; }
+    .main-navbar .collections-child {
+        display: flex; align-items: flex-start; gap: 8px; white-space: normal;
+    }
+    .main-navbar .collections-child::before { flex: 0 0 auto; }
+    .main-navbar .collections-child-title {
+        display: block; flex: 0 1 25ch; width: 25ch; max-width: 100%; min-width: 0;
+        box-sizing: border-box; white-space: normal; overflow-wrap: anywhere;
+    }
+}
+
 @media (max-width: 991.98px) {
     .main-navbar .nav-call { display: none; }
     .nav-search { width: 100%; margin-bottom: 10px; }

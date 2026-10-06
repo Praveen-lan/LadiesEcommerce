@@ -60,7 +60,7 @@
                                 <ul class="collection-submenu" id="collection-submenu-{{ cat.slug }}">
                                     {% for subcategory in cat.subcategories.all %}
                                     <li>
-                                        <a class="dropdown-item collections-child" href="{% url 'store:subcategory_detail' cat.slug subcategory.slug %}">{{ subcategory.title }}</a>
+                                        <a class="dropdown-item collections-child" href="{% url 'store:subcategory_detail' cat.slug subcategory.slug %}"><span class="collections-child-title">{{ subcategory.title }}</span></a>
                                     </li>
                                     {% empty %}
                                     <li><span class="collections-empty">No styles added yet</span></li>
