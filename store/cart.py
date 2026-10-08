@@ -133,11 +133,19 @@ class Cart:
         product_delivery = sum((item["delivery_charge"] for item in items), Decimal("0.00"))
         delivery = base_delivery + product_delivery
         gst = sum((item["gst_amount"] for item in items), Decimal("0.00"))
+        gst_by_percent = {}
+        for item in items:
+            percent = item["gst_percent"]
+            gst_by_percent[percent] = gst_by_percent.get(percent, Decimal("0.00")) + item["gst_amount"]
         total = (subtotal + delivery + gst).quantize(Decimal("0.01"))
         return {
             "subtotal": subtotal,
             "delivery": delivery,
             "gst": gst,
+            "gst_breakdown": [
+                {"percent": percent, "amount": amount}
+                for percent, amount in sorted(gst_by_percent.items())
+            ],
             "total": total,
             "delivery_fee": fee,
             "base_delivery": base_delivery,

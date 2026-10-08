@@ -14,6 +14,7 @@ from .pricing import (
     price_breakdown,
     to_amount,
 )
+from .validators import validate_payment_image_extension
 
 # Fallbacks for the two saree card details, used when a saree leaves the field
 # empty so every saree still shows the full set of details.
@@ -111,6 +112,7 @@ class LoginPage(models.Model):
         default="Step into a thoughtfully curated world of handloom stories, festive silks, and timeless drapes.",
     )
     tagline = models.CharField(max_length=160, default="Your saree story begins here")
+    background_image = models.ImageField(upload_to="site/", blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -636,6 +638,10 @@ class OrderItem(models.Model):
     def line_total(self):
         return self.price * self.quantity
 
+    @property
+    def gst_amount(self):
+        return gst_amount(self.line_total, self.gst_percent)
+
     def __str__(self):
         return f"{self.quantity} x {self.name}"
 
@@ -712,10 +718,14 @@ class PaymentProof(models.Model):
         blank=True,
         help_text="UPI reference or UTR number, when the customer has one.",
     )
-    screenshot = models.ImageField(upload_to="payment-proofs/")
+    screenshot = models.ImageField(
+        upload_to="payment-proofs/",
+        validators=[validate_payment_image_extension],
+    )
     notes = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     submitted_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated time")
     reviewed_at = models.DateTimeField(blank=True, null=True)
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -758,6 +768,21 @@ class PaymentProof(models.Model):
             return "No order linked"
         items = [f"{item.quantity} x {item.name}" for item in self.order.items.all()]
         return ", ".join(items) if items else "No items on this order"
+
+
+class AdminRecoveryCode(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    code_digest = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    attempts = models.PositiveSmallIntegerField(default=0)
+    used_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return f"Admin recovery code for {self.user}"
 
 
 # The starter sub categories every collection is seeded with, in menu order.

@@ -1,23 +1,22 @@
-"""Regression tests for the password reset flow.
+"""Tests for verified Django admin username and password recovery."""
 
-Bug: submitting a registered email returned ``Server Error (500)`` and no email
-was sent, because nothing configured an email backend or a sender address. The
-flow now uses the storefront templates, always has a usable sender, and reports
-delivery failures on the form instead of crashing.
-"""
+import re
 
 import pytest
 from django.conf import settings
 from django.contrib.auth.models import User
-from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.mail.backends.base import BaseEmailBackend
 from django.test import override_settings
 from django.urls import reverse
-from django.utils.encoding import force_bytes
-from django.utils.http import urlsafe_base64_encode
+from django.utils import timezone
+
+from store.models import AdminRecoveryCode
 
 pytestmark = pytest.mark.django_db
+
+NEW_USERNAME = "recovered-admin"
+NEW_PASSWORD = "N3w-Adm1n-Pass!"
 
 
 class BrokenEmailBackend(BaseEmailBackend):
@@ -27,136 +26,187 @@ class BrokenEmailBackend(BaseEmailBackend):
 
 @pytest.fixture
 def staff_user(db):
-    return User.objects.create_superuser("yash", "yashkammili@gmail.com", "old-password")
+    return User.objects.create_superuser("yash", "yash@example.com", "Old-Adm1n-Pass!")
 
 
-def test_email_settings_are_configured():
-    """An empty sender address or a missing backend is what caused the 500."""
-    assert settings.EMAIL_BACKEND
-    assert settings.DEFAULT_FROM_EMAIL
-    assert settings.SERVER_EMAIL
-
-
-def rendered_templates(response):
-    return [template.name for template in response.templates]
-
-
-def set_password_via_email_link(client, body, new_password):
-    """Walk Django 6's two-step confirm flow: token link -> set-password -> done."""
-    link = [word for word in body.split() if "/reset/" in word][0].rstrip(".")
-    redirect = client.post(link, {"new_password1": new_password, "new_password2": new_password})
-
-    assert redirect.status_code == 302
-    set_password_url = redirect["Location"]
-
-    page = client.get(set_password_url)
-    assert page.status_code == 200
-    assert "store/password_reset_confirm.html" in rendered_templates(page)
-
-    done = client.post(
-        set_password_url, {"new_password1": new_password, "new_password2": new_password}
+def request_recovery_code(client, staff_user):
+    response = client.post(
+        reverse("admin_password_reset"),
+        {"email": staff_user.email},
     )
-    assert done.status_code == 302
-    assert done["Location"] == reverse("password_reset_complete")
-    return link, set_password_url
+    assert response.status_code == 302
+    assert response["Location"] == reverse("admin_password_reset_verify")
+    assert len(mail.outbox) == 1
+    match = re.search(r"\b[0-9]{6}\b", mail.outbox[0].body)
+    assert match
+    return match.group()
 
 
-def test_password_reset_page_renders_with_storefront_chrome(client, staff_user):
+def verify_recovery_code(client, code):
+    return client.post(reverse("admin_password_reset_verify"), {"code": code})
+
+
+def test_admin_recovery_pages_use_django_admin_chrome(client, staff_user):
     response = client.get(reverse("admin_password_reset"))
 
     assert response.status_code == 200
-    assert "store/password_reset_form.html" in rendered_templates(response)
-    assert 'name="email"' in response.content.decode()
-    assert "Swathi Designers" in response.content.decode()
+    assert "admin/store/admin_recovery_request.html" in [
+        template.name for template in response.templates
+    ]
+    assert "admin/base_site.html" in [template.name for template in response.templates]
+    assert "main-navbar" not in response.content.decode()
 
 
-def test_admin_login_links_to_the_reset_page(client):
-    content = client.get(reverse("admin:login")).content.decode()
+def test_admin_login_links_to_recovery_inside_admin(client):
+    response = client.get(reverse("admin:login"))
 
-    assert reverse("admin_password_reset") in content
+    assert response.status_code == 200
+    assert b"Forgotten your password or username?" in response.content
+    assert reverse("admin_password_reset") in response.content.decode()
 
 
-def test_registered_email_is_confirmed_and_the_email_is_sent(client, staff_user):
-    response = client.post(reverse("admin_password_reset"), {"email": staff_user.email})
-
-    assert response.status_code == 302
-    assert response["Location"] == reverse("password_reset_done")
-
-    done = client.get(response["Location"])
-    assert done.status_code == 200
-    assert b"Password reset email sent" in done.content
-
-    assert len(mail.outbox) == 1
+def test_email_code_resets_both_username_and_password_and_new_credentials_login(client, staff_user):
+    code = request_recovery_code(client, staff_user)
     message = mail.outbox[0]
     assert message.to == [staff_user.email]
     assert message.from_email == settings.DEFAULT_FROM_EMAIL
-    assert message.subject.strip()
-    body = message.body
-    assert f"/reset/{urlsafe_base64_encode(force_bytes(staff_user.pk))}/" in body
 
+    response = verify_recovery_code(client, code)
+    assert response.status_code == 302
+    assert response["Location"] == reverse("admin_password_reset_change")
 
-def test_reset_link_in_the_email_sets_a_new_password(client, staff_user):
-    client.post(reverse("admin_password_reset"), {"email": staff_user.email})
-
-    set_password_via_email_link(client, mail.outbox[0].body, "N3w-Str0ng-Pass!")
+    response = client.post(
+        reverse("admin_password_reset_change"),
+        {
+            "username": NEW_USERNAME,
+            "password1": NEW_PASSWORD,
+            "password2": NEW_PASSWORD,
+        },
+    )
+    assert response.status_code == 302
+    assert response["Location"] == reverse("password_reset_complete")
 
     staff_user.refresh_from_db()
-    assert staff_user.check_password("N3w-Str0ng-Pass!")
+    assert staff_user.username == NEW_USERNAME
+    assert staff_user.check_password(NEW_PASSWORD)
+
+    response = client.post(
+        reverse("admin:login"),
+        {
+            "username": NEW_USERNAME,
+            "password": NEW_PASSWORD,
+            "next": reverse("admin:index"),
+        },
+    )
+    assert response.status_code == 302
+    assert response["Location"] == reverse("admin:index")
 
 
-def test_confirm_page_rejects_a_forged_token(client, staff_user):
-    uid = urlsafe_base64_encode(force_bytes(staff_user.pk))
+def test_recovery_code_is_single_use(client, staff_user):
+    code = request_recovery_code(client, staff_user)
+    assert verify_recovery_code(client, code).status_code == 302
 
-    response = client.get(reverse("password_reset_confirm", args=[uid, "not-a-real-token"]))
+    replay = verify_recovery_code(client, code)
+
+    assert replay.status_code == 200
+    assert b"invalid or expired" in replay.content
+
+
+def test_invalid_code_is_rejected_and_attempts_are_limited(client, staff_user):
+    correct_code = request_recovery_code(client, staff_user)
+    wrong_code = "999999" if correct_code != "999999" else "888888"
+    recovery = AdminRecoveryCode.objects.get(user=staff_user)
+
+    for _ in range(5):
+        response = verify_recovery_code(client, wrong_code)
+        assert response.status_code == 200
+    recovery.refresh_from_db()
+    assert recovery.attempts == 5
+    assert recovery.used_at is not None
+
+
+def test_expired_code_cannot_authorize_credential_changes(client, staff_user):
+    code = request_recovery_code(client, staff_user)
+    recovery = AdminRecoveryCode.objects.get(user=staff_user)
+    recovery.expires_at = timezone.now()
+    recovery.save(update_fields=("expires_at",))
+
+    response = verify_recovery_code(client, code)
 
     assert response.status_code == 200
-    assert b"no longer valid" in response.content
-    staff_user.refresh_from_db()
-    assert staff_user.check_password("old-password")
+    assert b"invalid or expired" in response.content
+    assert client.get(reverse("admin_password_reset_change")).status_code == 302
 
 
-def test_unknown_email_redirects_without_sending(client, db):
-    response = client.post(reverse("admin_password_reset"), {"email": "nobody@example.com"})
+def test_unknown_email_does_not_send_code_or_disclose_account_existence(client, db):
+    response = client.post(
+        reverse("admin_password_reset"),
+        {"email": "nobody@example.com"},
+    )
 
     assert response.status_code == 302
-    assert response["Location"] == reverse("password_reset_done")
+    assert response["Location"] == reverse("admin_password_reset_verify")
     assert mail.outbox == []
+    verify = client.post(reverse("admin_password_reset_verify"), {"code": "123456"})
+    assert verify.status_code == 200
+    assert b"invalid or expired" in verify.content
 
 
-def test_invalid_email_is_rejected_on_the_form(client, db):
+def test_invalid_email_is_rejected_on_the_admin_recovery_page(client, db):
     response = client.post(reverse("admin_password_reset"), {"email": "not-an-email"})
 
     assert response.status_code == 200
     assert response.context["form"].errors["email"]
+    assert "admin/base_site.html" in [template.name for template in response.templates]
     assert mail.outbox == []
 
 
-def test_mail_backend_failure_shows_a_form_error_instead_of_a_server_error(client, staff_user):
+def test_mail_failure_is_reported_and_no_recovery_code_is_created(client, staff_user):
     with override_settings(EMAIL_BACKEND="tests.test_password_reset.BrokenEmailBackend"):
-        response = client.post(reverse("admin_password_reset"), {"email": staff_user.email})
+        response = client.post(
+            reverse("admin_password_reset"),
+            {"email": staff_user.email},
+        )
 
     assert response.status_code == 200
-    assert "store/password_reset_form.html" in rendered_templates(response)
     assert response.context["form"].non_field_errors()
-    assert b"could not send the reset email" in response.content
+    assert b"could not send a recovery code" in response.content
+    assert not AdminRecoveryCode.objects.filter(user=staff_user).exists()
 
+
+def test_credentials_change_requires_verified_email_code(client, staff_user):
+    response = client.post(
+        reverse("admin_password_reset_change"),
+        {
+            "username": NEW_USERNAME,
+            "password1": NEW_PASSWORD,
+            "password2": NEW_PASSWORD,
+        },
+    )
+
+    assert response.status_code == 302
+    assert response["Location"] == reverse("admin_password_reset")
     staff_user.refresh_from_db()
-    assert staff_user.check_password("old-password")
+    assert staff_user.username == "yash"
+    assert staff_user.check_password("Old-Adm1n-Pass!")
 
 
-def test_reset_token_can_only_be_used_once(client, staff_user):
-    uid = urlsafe_base64_encode(force_bytes(staff_user.pk))
-    token = default_token_generator.make_token(staff_user)
-    url = reverse("password_reset_confirm", args=[uid, token])
+def test_username_collision_and_password_mismatch_do_not_update_account(client, staff_user, db):
+    User.objects.create_user("already-used", "another@example.com", "Other-Pass-123!")
+    code = request_recovery_code(client, staff_user)
+    assert verify_recovery_code(client, code).status_code == 302
 
-    redirect = client.post(url)
-    assert redirect.status_code == 302
-    set_password_url = redirect["Location"]
-    assert client.post(
-        set_password_url,
-        {"new_password1": "N3w-Str0ng-Pass!", "new_password2": "N3w-Str0ng-Pass!"},
-    ).status_code == 302
+    response = client.post(
+        reverse("admin_password_reset_change"),
+        {
+            "username": "already-used",
+            "password1": NEW_PASSWORD,
+            "password2": "different-password",
+        },
+    )
 
-    replay = client.get(url)
-    assert replay.status_code == 200
-    assert b"no longer valid" in replay.content
+    assert response.status_code == 200
+    assert response.context["form"].errors
+    staff_user.refresh_from_db()
+    assert staff_user.username == "yash"
+    assert staff_user.check_password("Old-Adm1n-Pass!")

@@ -156,9 +156,20 @@ def test_the_starter_catalogue_covers_the_five_expected_styles(db):
 
 
 @pytest.mark.django_db
-def test_nav_dropdown_has_five_collections_with_nested_subcategory_links(signed_in):
+def test_nav_dropdown_hides_subcategories_without_products(signed_in):
+    categories = Category.objects.order_by("order", "id")
+    visible_category = categories.first()
+    visible_subcategory = visible_category.subcategories.first()
+    Saree.objects.create(
+        category=visible_category,
+        subcategory=visible_subcategory,
+        name="Visible Nav Saree",
+        price="999",
+        image_url="https://images.example/nav-saree.jpg",
+    )
+
     response = signed_in.get(reverse("store:home"))
-    categories = response.context["navigation_categories"]
+    navigation_categories = response.context["navigation_categories"]
     expected_titles = [
         "Premium Collection",
         "Luxury Collection",
@@ -167,16 +178,47 @@ def test_nav_dropdown_has_five_collections_with_nested_subcategory_links(signed_
         "Budget Collection",
     ]
 
-    assert [category.title for category in categories] == expected_titles
-    assert all(category.subcategories.count() == 5 for category in categories)
+    assert [category.title for category in navigation_categories] == expected_titles
+    assert all(category.subcategories.count() == (1 if category.pk == visible_category.pk else 0)
+               for category in navigation_categories)
 
     content = response.content.decode()
     assert 'class="dropdown-menu collections-menu"' in content
     assert 'data-bs-auto-close="outside"' in content
-    for category in categories:
-        assert f'aria-controls="collection-submenu-{category.slug}"' in content
-        for subcategory in category.subcategories.all():
-            assert subcategory.get_absolute_url() in content
+    for category in navigation_categories:
+        if category.subcategories.exists():
+            assert f'aria-controls="collection-submenu-{category.slug}"' in content
+            assert f'id="collection-submenu-{category.slug}"' in content
+            for subcategory in category.subcategories.all():
+                assert subcategory.get_absolute_url() in content
+        else:
+            assert f'aria-controls="collection-submenu-{category.slug}"' not in content
+            assert f'id="collection-submenu-{category.slug}"' not in content
+            assert f'class="dropdown-item collections-category-link collections-category-label"' in content
+    assert "No styles added yet" not in content
+
+
+@pytest.mark.django_db
+def test_collections_submenu_is_capped_and_scrollable_when_many_styles_exist(signed_in):
+    category = Category.objects.first()
+    for index in range(12):
+        subcategory = SubCategory.objects.create(category=category, title=f"Style {index:02}")
+        Saree.objects.create(
+            category=category,
+            subcategory=subcategory,
+            name=f"Style Saree {index:02}",
+            price="999",
+            image_url=f"https://images.example/style-{index:02}.jpg",
+        )
+
+    content = signed_in.get(reverse("store:home")).content.decode()
+    submenu = content.split(f'id="collection-submenu-{category.slug}"', 1)[1].split("</ul>", 1)[0]
+
+    assert submenu.count('class="dropdown-item collections-child"') == 12
+    css = open("static/css/style.css", encoding="utf-8").read()
+    assert "max-height: min(70vh, 320px)" in css
+    assert "overflow-y: auto" in css
+    assert "Visible Nav Saree" not in content
 
 
 @pytest.mark.django_db
@@ -226,6 +268,17 @@ def test_subcategory_page_uses_the_same_theme_and_breadcrumb_trail(
 
 @pytest.mark.django_db
 def test_subcategory_page_offers_the_sibling_styles(signed_in, silk_category, silk_subcategory, cotton_subcategory):
+    for subcategory, name in (
+        (silk_subcategory, "Silk subcategory product"),
+        (cotton_subcategory, "Cotton subcategory product"),
+    ):
+        Saree.objects.create(
+            category=silk_category,
+            subcategory=subcategory,
+            name=name,
+            price="999",
+            image_url=f"https://images.example/{subcategory.slug}.jpg",
+        )
     content = signed_in.get(silk_subcategory.get_absolute_url()).content.decode()
 
     assert cotton_subcategory.get_absolute_url() in content
@@ -269,6 +322,14 @@ def test_empty_subcategory_page_shows_no_collection_browse_message(signed_in, si
 def test_collection_page_links_to_each_of_its_subcategories(
     signed_in, silk_category, silk_subcategory, cotton_subcategory
 ):
+    for subcategory in (silk_subcategory, cotton_subcategory):
+        Saree.objects.create(
+            category=silk_category,
+            subcategory=subcategory,
+            name=f"{subcategory.title} product",
+            price="999",
+            image_url=f"https://images.example/{subcategory.slug}.jpg",
+        )
     response = signed_in.get(reverse("store:category_detail", args=[silk_category.slug]))
 
     assert response.status_code == 200
@@ -295,7 +356,7 @@ def test_collection_page_displays_subcategories_as_image_cards_and_keeps_all_sar
     assert response.status_code == 200
     assert 'class="collection-style-card"' in content
     assert silk_subcategory.title in content
-    assert cotton_subcategory.title in content
+    assert cotton_subcategory.title not in content
     assert "All sarees in this collection" in content
     assert "Kanjivaram Antique Gold" in content
 

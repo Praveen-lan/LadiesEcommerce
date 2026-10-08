@@ -1,27 +1,45 @@
+import hmac
 import json
 import logging
 import re
+import secrets
+import smtplib
 import uuid
 import unicodedata
+from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from django.contrib import messages
-from django.contrib.auth import views as auth_views
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
-from django.db.models import Q
-from django.http import Http404, HttpResponse, HttpResponseNotFound
+from django.core.mail import send_mail
+from django.core.validators import EmailValidator
+from django.db import IntegrityError, transaction
+from django.db.models import Prefetch, Q
+from django.http import Http404, HttpResponse, HttpResponseNotFound, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.safestring import mark_safe
 from PIL import Image as PILImage, ImageDraw, ImageFont
 from .cart import Cart, shipping_rules
-from .forms import ContactForm, PasswordResetForm, PaymentProofForm
+from .forms import (
+    AdminRecoveryCodeForm,
+    AdminRecoveryCredentialsForm,
+    AdminRecoveryEmailForm,
+    ContactForm,
+    PaymentProofForm,
+)
 from .maps import extract_map_source
 from .models import (
     AboutPage,
+    AdminRecoveryCode,
     Banner,
     Category,
     Customer,
@@ -136,7 +154,7 @@ def _base_context(request=None):
     site = SiteSettings.objects.first()
     seo = SEO.current() or SEO()
     shipping_fee, free_shipping_above = shipping_rules()
-    categories = Category.objects.prefetch_related("subcategories")
+    categories = Category.objects.all()
     cart_count = 0
     customer = None
     if request is not None:
@@ -150,13 +168,17 @@ def _base_context(request=None):
     context = {
         "site": site,
         "categories": categories,
-        "navigation_categories": categories,
+        "navigation_categories": categories.prefetch_related(
+            Prefetch(
+                "subcategories",
+                queryset=SubCategory.objects.filter(sarees__isnull=False).distinct(),
+            )
+        ),
         "cart_count": cart_count,
         "customer": customer,
         "shipping_fee": shipping_fee,
         "free_shipping_above": free_shipping_above,
         "contact_map_url": _contact_map_url(site),
-        "contact_map_link_url": _contact_map_link(site),
     }
     context.update(_seo_context(request, site=site, seo=seo, noindex=noindex))
     return context
@@ -270,6 +292,7 @@ def login_view(request):
     login_images = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt=""))[:3]
     login_content = LoginPage.current() or LoginPage()
     error = ""
+    login_errors = {}
 
     if request.method == "POST":
         name = " ".join(request.POST.get("name", "").split())
@@ -277,16 +300,22 @@ def login_view(request):
         digits = re.sub(r"\D", "", phone)
         customer = Customer.objects.filter(phone=digits).first() if digits else None
 
-        if len(name) < 2:
-            error = "Please enter your name."
+        if not name:
+            login_errors["name"] = "Please enter name."
+        elif not _is_valid_login_name(name):
+            login_errors["name"] = "Please enter username"
+        if not phone:
+            login_errors["phone"] = "Please enter mobile number."
         elif not _is_valid_mobile(digits):
-            error = PHONE_ERROR
-        elif customer and not _customer_name_matches(customer, name):
-            error = "This mobile number is already registered under a different name."
-        elif customer is None:
+            login_errors["phone"] = PHONE_ERROR
+
+        if not login_errors and customer and not _customer_name_matches(customer, name):
+            error = "Please enter username"
+            login_errors["name"] = error
+        elif not login_errors and customer is None:
             customer = Customer.objects.create(phone=digits, name=name)
 
-        if not error:
+        if not error and not login_errors:
             _login_customer(request, customer)
             return redirect("store:home")
 
@@ -298,6 +327,7 @@ def login_view(request):
             "login_images": login_images,
             "login_content": login_content,
             "login_error": error,
+            "login_errors": login_errors,
             **seo_context,
         },
     )
@@ -316,46 +346,239 @@ def _login_customer(request, customer):
     return customer
 
 
-class StorePasswordContextMixin:
-    """Render the storefront chrome (nav, footer, SEO) on auth templates."""
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context.update(_base_context(self.request))
-        context["seo_noindex"] = True
-        return context
+ADMIN_RECOVERY_CODE_LIFETIME = timedelta(minutes=10)
+ADMIN_RECOVERY_CODE_COOLDOWN = timedelta(minutes=1)
+ADMIN_RECOVERY_MAX_ATTEMPTS = 5
+ADMIN_RECOVERY_SESSION_CODE = "admin_recovery_code_id"
+ADMIN_RECOVERY_SESSION_USER = "admin_recovery_user_id"
 
 
-class StorePasswordResetView(StorePasswordContextMixin, auth_views.PasswordResetView):
-    template_name = "store/password_reset_form.html"
-    form_class = PasswordResetForm
-    email_template_name = "registration/password_reset_email.html"
-    subject_template_name = "registration/password_reset_subject.txt"
-    success_url = reverse_lazy("password_reset_done")
+def _admin_recovery_code_digest(user_id, code):
+    return salted_hmac(
+        "store.admin_recovery_code",
+        f"{user_id}:{code}",
+        algorithm="sha256",
+    ).hexdigest()
 
-    def form_valid(self, form):
-        try:
-            return super().form_valid(form)
-        except Exception:
-            logger.exception("Password reset email could not be delivered.")
-            form.add_error(
-                None,
-                "We could not send the reset email just now. Please try again in a few minutes.",
+
+def admin_password_reset_request(request):
+    if request.method == "POST":
+        form = AdminRecoveryEmailForm(request.POST)
+        if form.is_valid():
+            now = timezone.now()
+            user_model = get_user_model()
+            users = list(
+                user_model._default_manager.filter(
+                    email__iexact=form.cleaned_data["email"],
+                    is_active=True,
+                    is_staff=True,
+                )[:2]
             )
-            return self.form_invalid(form)
+            request.session.pop(ADMIN_RECOVERY_SESSION_CODE, None)
+            if len(users) == 1:
+                user = users[0]
+                active_code = (
+                    AdminRecoveryCode.objects.filter(
+                        user=user,
+                        used_at__isnull=True,
+                        expires_at__gt=now,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+                recent_code = (
+                    AdminRecoveryCode.objects.filter(
+                        user=user,
+                        created_at__gte=now - ADMIN_RECOVERY_CODE_COOLDOWN,
+                    )
+                    .order_by("-created_at")
+                    .first()
+                )
+                if recent_code and active_code:
+                    request.session[ADMIN_RECOVERY_SESSION_CODE] = active_code.pk
+                else:
+                    code = f"{secrets.randbelow(1_000_000):06d}"
+                    try:
+                        sent = send_mail(
+                            "Django admin account recovery code",
+                            (
+                                f"Your admin account recovery code is {code}.\n\n"
+                                "Enter this code on the admin recovery page to reset your "
+                                "username and password. It expires in 10 minutes. If you "
+                                "did not request this, ignore this email."
+                            ),
+                            settings.DEFAULT_FROM_EMAIL,
+                            [user.email],
+                            fail_silently=False,
+                        )
+                    except (OSError, smtplib.SMTPException):
+                        logger.exception("Admin recovery email could not be delivered.")
+                        form.add_error(
+                            None,
+                            "We could not send a recovery code. Please try again later or contact the system owner.",
+                        )
+                    else:
+                        if sent != 1:
+                            logger.error("Admin recovery email backend sent no message.")
+                            form.add_error(
+                                None,
+                                "We could not send a recovery code. Please try again later or contact the system owner.",
+                            )
+                        else:
+                            sent_at = timezone.now()
+                            recovery = AdminRecoveryCode.objects.create(
+                                user=user,
+                                code_digest=_admin_recovery_code_digest(user.pk, code),
+                                expires_at=sent_at + ADMIN_RECOVERY_CODE_LIFETIME,
+                            )
+                            AdminRecoveryCode.objects.filter(
+                                user=user,
+                                used_at__isnull=True,
+                            ).exclude(pk=recovery.pk).update(used_at=sent_at)
+                            request.session[ADMIN_RECOVERY_SESSION_CODE] = recovery.pk
+                            return redirect("admin_password_reset_verify")
+            if not form.errors:
+                return redirect("admin_password_reset_verify")
+    else:
+        form = AdminRecoveryEmailForm()
+
+    return render(
+        request,
+        "admin/store/admin_recovery_request.html",
+        {"form": form, "title": "Recover admin account"},
+    )
 
 
-class StorePasswordResetDoneView(StorePasswordContextMixin, auth_views.PasswordResetDoneView):
-    template_name = "store/password_reset_done.html"
+def admin_password_reset_verify(request):
+    recovery_id = request.session.get(ADMIN_RECOVERY_SESSION_CODE)
+    recovery = None
+    if recovery_id:
+        recovery = (
+            AdminRecoveryCode.objects.select_related("user")
+            .filter(
+                pk=recovery_id,
+                used_at__isnull=True,
+                expires_at__gt=timezone.now(),
+                attempts__lt=ADMIN_RECOVERY_MAX_ATTEMPTS,
+                user__is_active=True,
+                user__is_staff=True,
+            )
+            .first()
+        )
+
+    if request.method == "POST":
+        form = AdminRecoveryCodeForm(request.POST)
+        if form.is_valid() and recovery:
+            now = timezone.now()
+            with transaction.atomic():
+                recovery = AdminRecoveryCode.objects.select_for_update().get(pk=recovery.pk)
+                if (
+                    recovery.used_at is None
+                    and recovery.expires_at > now
+                    and recovery.attempts < ADMIN_RECOVERY_MAX_ATTEMPTS
+                ):
+                    valid_code = hmac.compare_digest(
+                        recovery.code_digest,
+                        _admin_recovery_code_digest(recovery.user_id, form.cleaned_data["code"]),
+                    )
+                    recovery.attempts += 1
+                    if valid_code:
+                        recovery.used_at = now
+                    elif recovery.attempts >= ADMIN_RECOVERY_MAX_ATTEMPTS:
+                        recovery.used_at = now
+                    recovery.save(update_fields=("attempts", "used_at"))
+                else:
+                    valid_code = False
+
+            if valid_code:
+                request.session.cycle_key()
+                request.session[ADMIN_RECOVERY_SESSION_CODE] = recovery.pk
+                request.session[ADMIN_RECOVERY_SESSION_USER] = recovery.user_id
+                request.session.set_expiry(ADMIN_RECOVERY_CODE_LIFETIME.total_seconds())
+                return redirect("admin_password_reset_change")
+            form.add_error("code", "The code is invalid or expired. Request a new code.")
+        elif form.is_valid():
+            form.add_error("code", "The code is invalid or expired. Request a new code.")
+    else:
+        form = AdminRecoveryCodeForm()
+
+    return render(
+        request,
+        "admin/store/admin_recovery_verify.html",
+        {"form": form, "title": "Verify recovery code", "code_sent": recovery is not None},
+    )
 
 
-class StorePasswordResetConfirmView(StorePasswordContextMixin, auth_views.PasswordResetConfirmView):
-    template_name = "store/password_reset_confirm.html"
-    success_url = reverse_lazy("password_reset_complete")
+def _verified_admin_recovery(request):
+    recovery_id = request.session.get(ADMIN_RECOVERY_SESSION_CODE)
+    user_id = request.session.get(ADMIN_RECOVERY_SESSION_USER)
+    if not recovery_id or not user_id:
+        return None, None
+    recovery = (
+        AdminRecoveryCode.objects.select_related("user")
+        .filter(
+            pk=recovery_id,
+            user_id=user_id,
+            used_at__isnull=False,
+            expires_at__gt=timezone.now(),
+            user__is_active=True,
+            user__is_staff=True,
+        )
+        .first()
+    )
+    return (recovery, recovery.user) if recovery else (None, None)
 
 
-class StorePasswordResetCompleteView(StorePasswordContextMixin, auth_views.PasswordResetCompleteView):
-    template_name = "store/password_reset_complete.html"
+def admin_password_reset_change(request):
+    recovery, user = _verified_admin_recovery(request)
+    if not recovery:
+        request.session.pop(ADMIN_RECOVERY_SESSION_CODE, None)
+        request.session.pop(ADMIN_RECOVERY_SESSION_USER, None)
+        return redirect("admin_password_reset")
+
+    form = AdminRecoveryCredentialsForm(
+        request.POST if request.method == "POST" else None,
+        user=user,
+    )
+    if request.method == "POST" and form.is_valid():
+        username_field = user.USERNAME_FIELD
+        try:
+            with transaction.atomic():
+                recovery = AdminRecoveryCode.objects.select_for_update().filter(
+                    pk=recovery.pk,
+                    user_id=user.pk,
+                    used_at__isnull=False,
+                    expires_at__gt=timezone.now(),
+                ).first()
+                if not recovery:
+                    request.session.pop(ADMIN_RECOVERY_SESSION_CODE, None)
+                    request.session.pop(ADMIN_RECOVERY_SESSION_USER, None)
+                    return redirect("admin_password_reset")
+
+                user = get_user_model()._default_manager.select_for_update().get(pk=user.pk)
+                form = AdminRecoveryCredentialsForm(request.POST, user=user)
+                if form.is_valid():
+                    setattr(user, username_field, form.cleaned_data["username"])
+                    user.set_password(form.cleaned_data["password1"])
+                    user.save(update_fields=(username_field, "password"))
+                    request.session.flush()
+                    return redirect("password_reset_complete")
+        except IntegrityError:
+            form.add_error("username", "That username is already in use.")
+
+    return render(
+        request,
+        "admin/store/admin_recovery_change.html",
+        {"form": form, "title": "Set new admin credentials"},
+    )
+
+
+def admin_password_reset_complete(request):
+    return render(
+        request,
+        "admin/store/admin_recovery_complete.html",
+        {"title": "Admin credentials updated"},
+    )
 
 
 def logout_view(request):
@@ -451,7 +674,13 @@ def contact(request):
         form.save()
         messages.success(request, "Thank you. Your enquiry has been received.")
         return redirect("store:contact")
-    context.update({"contact_form": form, "contact_map_url": _contact_map_url(context["site"])})
+    context.update(
+        {
+            "contact_form": form,
+            "contact_map_url": _contact_map_url(context["site"]),
+            "contact_map_link_url": _contact_map_link(context["site"]),
+        }
+    )
     site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
     context.update(
         _seo_context(
@@ -563,7 +792,7 @@ def category_detail(request, slug):
     context = _base_context(request)
     context["category"] = category
     context["sarees"] = category.sarees.all()
-    context["subcategories"] = category.subcategories.all()
+    context["subcategories"] = category.subcategories.filter(sarees__isnull=False).distinct()
     site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
     context.update(
         _seo_context(
@@ -589,7 +818,9 @@ def subcategory_detail(request, category_slug, slug):
     context["subcategory"] = subcategory
     context["category"] = subcategory.category
     context["sarees"] = subcategory.sarees.all()
-    context["subcategories"] = subcategory.category.subcategories.all()
+    context["subcategories"] = subcategory.category.subcategories.filter(
+        sarees__isnull=False
+    ).distinct()
     site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
     context.update(
         _seo_context(
@@ -656,14 +887,27 @@ def add_to_cart(request):
         saree = get_object_or_404(Saree, pk=saree_id)
         cart = Cart(request)
         if not saree.in_stock:
-            messages.error(request, f'"{saree.name}" is out of stock and cannot be added to your cart.')
+            message = f'"{saree.name}" is out of stock and cannot be added to your cart.'
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse(
+                    {"success": False, "message": message, "cart_count": cart.count()},
+                    status=400,
+                )
+            messages.error(request, message)
         else:
             cart.add(saree.id, quantity)
-            messages.success(request, f'"{saree.name}" added to your cart.')
-        redirect_back = request.POST.get("redirect") or "store:catalog"
-        if redirect_back == "store:cart":
-            return redirect("store:cart")
-        return redirect(redirect_back)
+            message = f'"{saree.name}" added to your cart.'
+            if request.headers.get("x-requested-with") == "XMLHttpRequest":
+                return JsonResponse({"success": True, "message": message, "cart_count": cart.count()})
+            messages.success(request, message)
+        redirect_back = request.POST.get("redirect", "")
+        if redirect_back.startswith("/") and url_has_allowed_host_and_scheme(
+            redirect_back,
+            allowed_hosts={request.get_host()},
+            require_https=request.is_secure(),
+        ):
+            return redirect(redirect_back)
+        return redirect("store:catalog")
     return redirect("store:catalog")
 
 
@@ -694,10 +938,9 @@ def remove_from_cart(request, saree_id):
 def checkout(request):
     cart = Cart(request)
     items = cart.items()
-    customer = _customer(request)
     if request.method == "POST":
-        name = request.POST.get("name", "").strip() or (customer.name if customer else "")
-        phone = request.POST.get("phone", "").strip() or (customer.phone if customer else "")
+        name = request.POST.get("name", "").strip()
+        phone = request.POST.get("phone", "").strip()
         email = request.POST.get("email", "").strip()
         address = request.POST.get("address", "").strip()
         city = request.POST.get("city", "").strip()
@@ -709,22 +952,44 @@ def checkout(request):
             messages.error(request, "Your cart is empty.")
             return redirect("store:catalog")
 
-        checkout_error = None
-        checkout_error_field = None
-        if not _is_valid_checkout_name(name):
-            checkout_error = "Please enter a valid name."
-            checkout_error_field = "name"
-        elif not _is_valid_checkout_phone(phone):
-            checkout_error = PHONE_ERROR
-            checkout_error_field = "phone"
-        elif not _is_valid_checkout_place(city):
-            checkout_error = "Please enter a valid city name."
-            checkout_error_field = "city"
-        elif state and not _is_valid_checkout_place(state):
-            checkout_error = "Please enter a valid state name."
-            checkout_error_field = "state"
+        checkout_errors = {}
+        if not _is_valid_checkout_name(name) or len(name) > 150:
+            checkout_errors["name"] = "Please enter a valid name."
+        if not _is_valid_checkout_phone(phone):
+            checkout_errors["phone"] = PHONE_ERROR
+        if not email:
+            checkout_errors["email"] = "Please enter email."
+        elif len(email) > 254 or not _valid_email(email):
+            checkout_errors["email"] = "Please enter a valid email address."
+        if not address:
+            checkout_errors["address"] = "Please enter address."
+        elif len(address) > 300:
+            checkout_errors["address"] = "Please enter a delivery address of 300 characters or fewer."
+        if not city:
+            checkout_errors["city"] = "Please enter city."
+        elif not _is_valid_checkout_place(city) or len(city) > 100:
+            checkout_errors["city"] = "Please enter a valid city name."
+        if not state:
+            checkout_errors["state"] = "Please enter state."
+        elif not _is_valid_checkout_place(state) or len(state) > 100:
+            checkout_errors["state"] = "Please enter a valid state name."
+        if not pincode:
+            checkout_errors["pincode"] = "Please enter pincode."
+        elif not re.fullmatch(r"[0-9]{6}", pincode):
+            checkout_errors["pincode"] = "Please enter a valid 6-digit PIN code."
+        proof_files = request.FILES.copy()
+        if request.FILES.get("payment_screenshot"):
+            proof_files["screenshot"] = request.FILES["payment_screenshot"]
+        proof_form = PaymentProofForm(request.POST, proof_files)
+        if not proof_form.is_valid():
+            checkout_errors["payment_screenshot"] = (
+                "Please upload payment screenshot."
+                if not request.FILES.get("payment_screenshot")
+                else "Please upload valid payment receipt."
+            )
 
-        if checkout_error:
+        if checkout_errors:
+            checkout_error = next(iter(checkout_errors.values()))
             context = _base_context(request)
             context.update(
                 {
@@ -732,7 +997,8 @@ def checkout(request):
                     "totals": cart.totals(),
                     "payment_methods": CHECKOUT_PAYMENT_METHODS,
                     "checkout_error": checkout_error,
-                    "checkout_error_field": checkout_error_field,
+                    "checkout_errors": checkout_errors,
+                    "proof_form": proof_form,
                     "checkout_values": {
                         "name": request.POST.get("name", ""),
                         "phone": request.POST.get("phone", ""),
@@ -780,18 +1046,16 @@ def checkout(request):
                 delivery_charge=item["saree"].delivery_charge,
                 gst_percent=item["saree"].gst_percent,
             )
-        screenshot = request.FILES.get("payment_screenshot")
-        if screenshot:
-            PaymentProof(
-                order=order,
-                customer=_customer(request),
-                customer_name=order.name,
-                phone=order.phone,
-                amount=order.total,
-                payment_method=order.payment_method,
-                reference=(request.POST.get("payment_reference") or "").strip(),
-                screenshot=screenshot,
-            ).save()
+        PaymentProof(
+            order=order,
+            customer=_customer(request),
+            customer_name=order.name,
+            phone=order.phone,
+            amount=order.total,
+            payment_method=order.payment_method,
+            reference=(request.POST.get("payment_reference") or "").strip(),
+            screenshot=proof_form.cleaned_data["screenshot"],
+        ).save()
         cart.clear()
         request.session["last_order_id"] = order.order_id
         return redirect("store:order_success", order_id=order.order_id)
@@ -817,8 +1081,31 @@ def _is_valid_checkout_name(name):
     return has_letter
 
 
+def _is_valid_login_name(name):
+    if len(name) > 150:
+        return False
+    has_letter = False
+    for character in name:
+        category = unicodedata.category(character)
+        if category.startswith("L"):
+            has_letter = True
+        elif category.startswith("M") or character == " ":
+            continue
+        else:
+            return False
+    return has_letter
+
+
 def _is_valid_checkout_phone(phone):
-    return _is_valid_mobile(re.sub(r"\D", "", phone or ""))
+    return _is_valid_mobile(phone or "")
+
+
+def _valid_email(value):
+    try:
+        EmailValidator()(value)
+    except ValidationError:
+        return False
+    return True
 
 
 def _is_valid_mobile(digits):

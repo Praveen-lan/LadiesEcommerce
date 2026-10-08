@@ -13,10 +13,11 @@
             <strong>&#8377; {{ saree.final_amount }}</strong>
             {% if saree.discount_amount %}<del>&#8377; {{ saree.original_amount }}</del>{% endif %}
         </div>
-        <form action="{% url 'store:add_to_cart' %}" method="post">
+        <form action="{% url 'store:add_to_cart' %}" method="post" class="saree-card-add-form">
             {% csrf_token %}
             <input type="hidden" name="saree_id" value="{{ saree.id }}">
             <input type="hidden" name="quantity" value="1">
+            <input type="hidden" name="redirect" value="{{ request.get_full_path }}">
             <button type="submit" class="btn btn-buy w-100" {% if not saree.in_stock %}disabled{% endif %}>
                 {% if saree.in_stock %}<i class="bi bi-bag-plus"></i> Add to Cart{% else %}Out of Stock{% endif %}
             </button>

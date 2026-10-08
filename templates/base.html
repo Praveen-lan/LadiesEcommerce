@@ -54,6 +54,7 @@
                         <ul class="dropdown-menu collections-menu" aria-labelledby="collectionsMenuLink">
                             {% for cat in navigation_categories %}
                             <li class="collections-category">
+                                {% if cat.subcategories.all %}
                                 <button class="dropdown-item collections-category-link" type="button" aria-expanded="false" aria-controls="collection-submenu-{{ cat.slug }}">
                                     <span class="collections-category-title">{{ cat.title }}</span>
                                     <i class="bi bi-chevron-right" aria-hidden="true"></i>
@@ -63,10 +64,13 @@
                                     <li>
                                         <a class="dropdown-item collections-child" href="{% url 'store:subcategory_detail' cat.slug subcategory.slug %}"><span class="collections-child-title">{{ subcategory.title }}</span></a>
                                     </li>
-                                    {% empty %}
-                                    <li><span class="collections-empty">No styles added yet</span></li>
                                     {% endfor %}
                                 </ul>
+                                {% else %}
+                                <span class="dropdown-item collections-category-link collections-category-label">
+                                    <span class="collections-category-title">{{ cat.title }}</span>
+                                </span>
+                                {% endif %}
                             </li>
                             {% empty %}
                             <li><span class="collections-empty">Collections will appear here soon.</span></li>
@@ -169,14 +173,9 @@
                         <li><i class="bi bi-envelope-fill"></i> <a href="mailto:{{ site.email }}">{{ site.email }}</a></li>
                         {% endif %}
                         {% if site.address %}
-                        <li><i class="bi bi-geo-alt-fill"></i> <a href="{{ contact_map_link_url }}" target="_blank" rel="noopener">{{ site.address }}</a></li>
+                        <li><i class="bi bi-geo-alt-fill"></i> {{ site.address }}</li>
                         {% endif %}
                     </ul>
-                    {% if contact_map_url %}
-                    <div class="footer-map-frame">
-                        <iframe src="{{ contact_map_url }}" title="Swathi Designers location map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe>
-                    </div>
-                    {% endif %}
                 </div>
             </div>
             <div class="footer-bottom">
@@ -210,6 +209,83 @@
                 });
             });
         });
+
+        document.querySelectorAll('.saree-card-add-form').forEach(form => {
+            form.addEventListener('submit', async event => {
+                event.preventDefault();
+                const button = form.querySelector('button[type="submit"]');
+                if (!button || button.disabled) return;
+
+                const originalButtonContent = button.innerHTML;
+                button.disabled = true;
+                button.setAttribute('aria-busy', 'true');
+
+                try {
+                    const response = await fetch(form.action, {
+                        method: 'POST',
+                        body: new FormData(form),
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest',
+                            'Accept': 'application/json'
+                        },
+                        credentials: 'same-origin'
+                    });
+
+                    if (response.redirected) {
+                        window.location.assign(response.url);
+                        return;
+                    }
+
+                    const result = await response.json();
+                    const cartLink = document.querySelector('.cart-link');
+                    if (cartLink && Number.isInteger(result.cart_count)) {
+                        let badge = cartLink.querySelector('.cart-badge');
+                        if (result.cart_count > 0) {
+                            if (!badge) {
+                                badge = document.createElement('span');
+                                badge.className = 'cart-badge';
+                                cartLink.appendChild(badge);
+                            }
+                            badge.textContent = result.cart_count;
+                        } else if (badge) {
+                            badge.remove();
+                        }
+                    }
+
+                    showCartMessage(result.message, result.success);
+                    if (result.success) {
+                        button.innerHTML = '<i class="bi bi-check2"></i> Added';
+                        window.setTimeout(() => {
+                            button.innerHTML = originalButtonContent;
+                            button.disabled = false;
+                            button.removeAttribute('aria-busy');
+                        }, 1200);
+                    } else {
+                        button.disabled = false;
+                        button.removeAttribute('aria-busy');
+                    }
+                } catch (error) {
+                    button.disabled = false;
+                    button.removeAttribute('aria-busy');
+                    showCartMessage('Unable to add this item right now. Please try again.', false);
+                }
+            });
+        });
+
+        function showCartMessage(message, success) {
+            let toastStack = document.querySelector('.toast-stack');
+            if (!toastStack) {
+                toastStack = document.createElement('div');
+                toastStack.className = 'toast-stack';
+                toastStack.setAttribute('aria-live', 'polite');
+                document.body.appendChild(toastStack);
+            }
+            const toast = document.createElement('div');
+            toast.className = `toast-item ${success ? 'success' : 'error'}`;
+            toast.textContent = message;
+            toastStack.appendChild(toast);
+            window.setTimeout(() => toast.remove(), 4000);
+        }
     </script>
     {% block extra_js %}{% endblock %}
 </body>

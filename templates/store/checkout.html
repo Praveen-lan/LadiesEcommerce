@@ -17,10 +17,12 @@
         {% if cart_items %}
         <div class="row g-4">
             <div class="col-lg-8">
-                <form method="post" id="checkout-form" enctype="multipart/form-data">
+                <form method="post" id="checkout-form" enctype="multipart/form-data" novalidate>
                     {% csrf_token %}
                     <input type="hidden" name="payment_method" id="payment-method" value="{{ payment_methods.0.0 }}">
-                    {% if checkout_error %}<div class="alert alert-danger" role="alert">{{ checkout_error }}</div>{% endif %}
+                    {% if checkout_error %}<div class="alert alert-danger" role="alert">
+                        {% for error in checkout_errors.values %}<div>{{ error }}</div>{% empty %}{{ checkout_error }}{% endfor %}
+                    </div>{% endif %}
 
                     <div class="card border rounded-3 mb-4">
                         <div class="card-body p-4">
@@ -28,35 +30,38 @@
                             <div class="row g-3">
                                 <div class="col-md-6">
                                     <label class="form-label" for="checkout-name">Full Name *</label>
-                                    <input type="text" id="checkout-name" name="name" class="form-control" placeholder="Your full name" value="{{ checkout_values.name|default:'' }}" aria-describedby="checkout-name-error" {% if checkout_error_field == 'name' %}aria-invalid="true"{% endif %} required>
-                                    <div id="checkout-name-error" class="invalid-feedback{% if checkout_error_field == 'name' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'name' %}{{ checkout_error }}{% else %}Please enter a valid name.{% endif %}</div>
+                                    <input type="text" id="checkout-name" name="name" class="form-control" placeholder="Your full name" maxlength="150" value="{{ checkout_values.name|default:'' }}" aria-describedby="checkout-name-error" {% if checkout_errors.name %}aria-invalid="true"{% endif %} required>
+                                    <div id="checkout-name-error" class="invalid-feedback{% if checkout_errors.name %} d-block{% else %} d-none{% endif %}">{% if checkout_errors.name %}{{ checkout_errors.name }}{% else %}Please enter a valid name.{% endif %}</div>
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label" for="checkout-phone">Phone Number *</label>
-                                    <input type="tel" id="checkout-phone" name="phone" class="form-control" placeholder="Ex: 9876543210" inputmode="numeric" maxlength="10" pattern="[6-9][0-9]{9}" title="Enter a 10 digit mobile number starting with 6, 7, 8 or 9." value="{{ checkout_values.phone|default:'' }}" aria-describedby="checkout-phone-error" {% if checkout_error_field == 'phone' %}aria-invalid="true"{% endif %} required>
-                                    <div id="checkout-phone-error" class="invalid-feedback{% if checkout_error_field == 'phone' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'phone' %}{{ checkout_error }}{% else %}Please enter a valid 10-digit phone number.{% endif %}</div>
+                                    <input type="tel" id="checkout-phone" name="phone" class="form-control" placeholder="Ex: 9876543210" inputmode="numeric" maxlength="10" pattern="[6-9][0-9]{9}" title="Enter a 10 digit mobile number starting with 6, 7, 8 or 9." value="{{ checkout_values.phone|default:'' }}" aria-describedby="checkout-phone-error" {% if checkout_errors.phone %}aria-invalid="true"{% endif %} required>
+                                    <div id="checkout-phone-error" class="invalid-feedback{% if checkout_errors.phone %} d-block{% else %} d-none{% endif %}">{% if checkout_errors.phone %}{{ checkout_errors.phone }}{% else %}Please enter a valid 10-digit phone number.{% endif %}</div>
                                 </div>
                                 <div class="col-12">
-                                    <label class="form-label" for="checkout-email">Email</label>
-                                    <input type="email" id="checkout-email" name="email" class="form-control" placeholder="you@example.com" value="{{ checkout_values.email|default:'' }}">
+                                    <label class="form-label" for="checkout-email">Email *</label>
+                                    <input type="email" id="checkout-email" name="email" class="form-control" placeholder="you@example.com" maxlength="254" value="{{ checkout_values.email|default:'' }}" aria-describedby="checkout-email-error" {% if checkout_errors.email %}aria-invalid="true"{% endif %} required>
+                                    <div id="checkout-email-error" class="invalid-feedback{% if checkout_errors.email %} d-block{% else %} d-none{% endif %}">{% if checkout_errors.email %}{{ checkout_errors.email }}{% else %}Please enter email.{% endif %}</div>
                                 </div>
                                 <div class="col-12">
                                     <label class="form-label" for="checkout-address">Address *</label>
-                                    <textarea id="checkout-address" name="address" class="form-control" rows="2" placeholder="House, street, area" required>{{ checkout_values.address|default:'' }}</textarea>
+                                    <textarea id="checkout-address" name="address" class="form-control" rows="2" maxlength="300" placeholder="House, street, area" {% if checkout_errors.address %}aria-invalid="true"{% endif %} required>{{ checkout_values.address|default:'' }}</textarea>
+                                    <div id="checkout-address-error" class="invalid-feedback{% if checkout_errors.address %} d-block{% else %} d-none{% endif %}">{% if checkout_errors.address %}{{ checkout_errors.address }}{% else %}Please enter address.{% endif %}</div>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label" for="checkout-city">City *</label>
-                                    <input type="text" id="checkout-city" name="city" class="form-control" placeholder="City" value="{{ checkout_values.city|default:'' }}" aria-describedby="checkout-city-error" {% if checkout_error_field == 'city' %}aria-invalid="true"{% endif %} required>
-                                    <div id="checkout-city-error" class="invalid-feedback{% if checkout_error_field == 'city' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'city' %}{{ checkout_error }}{% else %}Please enter a valid city name.{% endif %}</div>
+                                    <input type="text" id="checkout-city" name="city" class="form-control" placeholder="City" maxlength="100" value="{{ checkout_values.city|default:'' }}" aria-describedby="checkout-city-error" {% if checkout_errors.city %}aria-invalid="true"{% endif %} required>
+                                    <div id="checkout-city-error" class="invalid-feedback{% if checkout_errors.city %} d-block{% else %} d-none{% endif %}">{% if checkout_errors.city %}{{ checkout_errors.city }}{% else %}Please enter city.{% endif %}</div>
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label" for="checkout-state">State</label>
-                                    <input type="text" id="checkout-state" name="state" class="form-control" placeholder="State" value="{{ checkout_values.state|default:'' }}" aria-describedby="checkout-state-error" {% if checkout_error_field == 'state' %}aria-invalid="true"{% endif %}>
-                                    <div id="checkout-state-error" class="invalid-feedback{% if checkout_error_field == 'state' %} d-block{% else %} d-none{% endif %}">{% if checkout_error_field == 'state' %}{{ checkout_error }}{% else %}Please enter a valid state name.{% endif %}</div>
+                                    <label class="form-label" for="checkout-state">State *</label>
+                                    <input type="text" id="checkout-state" name="state" class="form-control" placeholder="State" maxlength="100" value="{{ checkout_values.state|default:'' }}" aria-describedby="checkout-state-error" {% if checkout_errors.state %}aria-invalid="true"{% endif %} required>
+                                    <div id="checkout-state-error" class="invalid-feedback{% if checkout_errors.state %} d-block{% else %} d-none{% endif %}">{% if checkout_errors.state %}{{ checkout_errors.state }}{% else %}Please enter state.{% endif %}</div>
                                 </div>
                                 <div class="col-md-4">
                                     <label class="form-label" for="checkout-pincode">PIN Code *</label>
-                                    <input type="text" id="checkout-pincode" name="pincode" class="form-control" placeholder="600040" pattern="[0-9]{6}" value="{{ checkout_values.pincode|default:'' }}" required>
+                                    <input type="text" id="checkout-pincode" name="pincode" class="form-control" placeholder="600040" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" value="{{ checkout_values.pincode|default:'' }}" {% if checkout_errors.pincode %}aria-invalid="true"{% endif %} required>
+                                    <div id="checkout-pincode-error" class="invalid-feedback{% if checkout_errors.pincode %} d-block{% else %} d-none{% endif %}">{% if checkout_errors.pincode %}{{ checkout_errors.pincode }}{% else %}Please enter pincode.{% endif %}</div>
                                 </div>
                             </div>
                         </div>
@@ -108,7 +113,8 @@
                 <div class="col-md-6">
                     <label class="form-label small fw-semibold" for="payment_screenshot">Payment screenshot</label>
                     <input type="file" class="form-control" id="payment_screenshot" name="payment_screenshot"
-                           accept="image/*" required>
+                           accept=".jpg,.jpeg,.jfif,.png,.webp" aria-describedby="payment-screenshot-error" required>
+                    <div id="payment-screenshot-error" class="text-danger small mt-1{% if not checkout_errors.payment_screenshot %} d-none{% endif %}">{% if checkout_errors.payment_screenshot %}{{ checkout_errors.payment_screenshot }}{% else %}Please upload payment screenshot.{% endif %}</div>
                 </div>
             </div>
         </div>
@@ -125,7 +131,7 @@
             </div>
 
             <div class="col-lg-4">
-                <div class="cart-summary sticky-top" style="top: 90px;">
+                <div class="cart-summary checkout-order-summary">
                     <h5>Order Summary</h5>
                     {% for item in cart_items %}
                     <div class="d-flex gap-3 align-items-center py-2 border-bottom">
@@ -133,15 +139,15 @@
                         <div class="flex-grow-1">
                             <div class="small fw-semibold">{{ item.saree.name }}</div>
                             <div class="text-muted small">Qty: {{ item.quantity }}</div>
-                            <div class="text-muted small">Delivery: &#8377; {{ item.delivery_charge }}</div>
-                            <div class="text-muted small">GST ({{ item.gst_percent }}%): &#8377; {{ item.gst_amount }}</div>
                         </div>
-                        <div class="small fw-semibold">&#8377; {{ item.line_total }}</div>
+                        <div class="small fw-semibold text-nowrap">&#8377; {{ item.line_total }}</div>
                     </div>
                     {% endfor %}
                     <div class="sum-row mt-2"><span>Subtotal</span><span>&#8377; {{ totals.subtotal }}</span></div>
                     <div class="sum-row"><span>Delivery</span><span>{% if totals.delivery > 0 %}&#8377; {{ totals.delivery }}{% else %}Free{% endif %}</span></div>
-                    <div class="sum-row"><span>GST</span><span>&#8377; {{ totals.gst }}</span></div>
+                    {% for gst in totals.gst_breakdown %}
+                    <div class="sum-row"><span>GST ({{ gst.percent }}%)</span><span>&#8377; {{ gst.amount }}</span></div>
+                    {% endfor %}
                     <div class="sum-row total"><span>Total</span><span>&#8377; {{ totals.total }}</span></div>
                     <a href="{% url 'store:cart' %}" class="btn btn-outline-gold w-100 rounded-pill mt-2"><i class="bi bi-arrow-left"></i> Back to Cart</a>
                 </div>
@@ -166,10 +172,18 @@
     const nameError = document.getElementById('checkout-name-error');
     const phoneField = document.getElementById('checkout-phone');
     const phoneError = document.getElementById('checkout-phone-error');
+    const emailField = document.getElementById('checkout-email');
+    const emailError = document.getElementById('checkout-email-error');
+    const addressField = document.getElementById('checkout-address');
+    const addressError = document.getElementById('checkout-address-error');
     const cityField = document.getElementById('checkout-city');
     const cityError = document.getElementById('checkout-city-error');
     const stateField = document.getElementById('checkout-state');
     const stateError = document.getElementById('checkout-state-error');
+    const pincodeField = document.getElementById('checkout-pincode');
+    const pincodeError = document.getElementById('checkout-pincode-error');
+    const screenshotField = document.getElementById('payment_screenshot');
+    const screenshotError = document.getElementById('payment-screenshot-error');
     const methodInput = document.getElementById('payment-method');
 
     function isValidName(value) {
@@ -211,9 +225,48 @@
     }
 
     function setPlaceError(field, error, visible) {
-        field.setAttribute('aria-invalid', visible ? 'true' : 'false');
+        if (visible) field.setAttribute('aria-invalid', 'true');
+        else field.removeAttribute('aria-invalid');
+        if (visible) {
+            const place = field.value.trim();
+            error.textContent = place
+                ? `Please enter a valid ${field.id === 'checkout-city' ? 'city' : 'state'} name.`
+                : `Please enter ${field.id === 'checkout-city' ? 'city' : 'state'}.`;
+        }
         error.classList.toggle('d-block', visible);
         error.classList.toggle('d-none', !visible);
+    }
+
+    function setFieldError(field, error, visible) {
+        if (visible) field.setAttribute('aria-invalid', 'true');
+        else field.removeAttribute('aria-invalid');
+        if (visible && field === emailField) {
+            error.textContent = emailField.value.trim()
+                ? 'Please enter a valid email address.'
+                : 'Please enter email.';
+        } else if (visible && field === addressField) {
+            error.textContent = addressField.value.trim()
+                ? 'Please enter a delivery address of 300 characters or fewer.'
+                : 'Please enter address.';
+        } else if (visible && field === pincodeField) {
+            error.textContent = pincodeField.value.trim()
+                ? 'Please enter a valid 6-digit PIN code.'
+                : 'Please enter pincode.';
+        }
+        error.classList.toggle('d-block', visible);
+        error.classList.toggle('d-none', !visible);
+    }
+
+    function isValidEmail() {
+        return Boolean(emailField.value.trim()) && emailField.validity.valid;
+    }
+
+    function isValidAddress() {
+        return Boolean(addressField.value.trim()) && addressField.value.trim().length <= 300;
+    }
+
+    function isValidPincode() {
+        return /^[0-9]{6}$/.test(pincodeField.value.trim());
     }
 
     nameField.addEventListener('blur', () => {
@@ -232,6 +285,10 @@
         if (isValidPhone(phoneField.value)) clearPhoneError();
     });
     phoneField.addEventListener('invalid', showPhoneError);
+    emailField.addEventListener('input', () => setFieldError(emailField, emailError, !isValidEmail()));
+    emailField.addEventListener('blur', () => setFieldError(emailField, emailError, !isValidEmail()));
+    addressField.addEventListener('input', () => setFieldError(addressField, addressError, !isValidAddress()));
+    addressField.addEventListener('blur', () => setFieldError(addressField, addressError, !isValidAddress()));
     cityField.addEventListener('blur', () => setPlaceError(cityField, cityError, !isValidPlaceName(cityField.value)));
     cityField.addEventListener('input', () => {
         if (isValidPlaceName(cityField.value)) setPlaceError(cityField, cityError, false);
@@ -239,36 +296,54 @@
     stateField.addEventListener('blur', () => setPlaceError(
         stateField,
         stateError,
-        Boolean(stateField.value.trim()) && !isValidPlaceName(stateField.value)
+        !isValidPlaceName(stateField.value)
     ));
     stateField.addEventListener('input', () => {
-        if (!stateField.value.trim() || isValidPlaceName(stateField.value)) {
+        if (isValidPlaceName(stateField.value)) {
             setPlaceError(stateField, stateError, false);
         }
+    });
+    pincodeField.addEventListener('input', () => setFieldError(pincodeField, pincodeError, !isValidPincode()));
+    pincodeField.addEventListener('blur', () => setFieldError(pincodeField, pincodeError, !isValidPincode()));
+    screenshotField.addEventListener('change', () => {
+        const missing = screenshotField.files.length === 0;
+        screenshotError.classList.toggle('d-block', missing);
+        screenshotError.classList.toggle('d-none', !missing);
     });
     checkoutForm.addEventListener('submit', (event) => {
         const validName = isValidName(nameField.value);
         const validPhone = isValidPhone(phoneField.value);
+        const validEmail = isValidEmail();
+        const validAddress = isValidAddress();
         const validCity = isValidPlaceName(cityField.value);
-        const validState = !stateField.value.trim() || isValidPlaceName(stateField.value);
-        if (!validName || !validPhone || !validCity || !validState) {
+        const validState = isValidPlaceName(stateField.value);
+        const validPincode = isValidPincode();
+        const validScreenshot = screenshotField.files.length > 0;
+        if (!validName || !validPhone || !validEmail || !validAddress || !validCity || !validState || !validPincode || !validScreenshot) {
             event.preventDefault();
             if (!validName) {
                 showNameError();
-                nameField.focus();
             }
             if (!validPhone) {
                 showPhoneError();
-                if (validName) phoneField.focus();
             }
+            setFieldError(emailField, emailError, !validEmail);
+            setFieldError(addressField, addressError, !validAddress);
             if (!validCity) {
                 setPlaceError(cityField, cityError, true);
-                if (validName && validPhone) cityField.focus();
             }
             if (!validState) {
                 setPlaceError(stateField, stateError, true);
-                if (validName && validPhone && validCity) stateField.focus();
             }
+            setFieldError(pincodeField, pincodeError, !validPincode);
+            screenshotError.classList.toggle('d-block', !validScreenshot);
+            screenshotError.classList.toggle('d-none', validScreenshot);
+            const firstInvalid = [
+                [validName, nameField], [validPhone, phoneField], [validEmail, emailField],
+                [validAddress, addressField], [validCity, cityField], [validState, stateField],
+                [validPincode, pincodeField], [validScreenshot, screenshotField]
+            ].find(([valid]) => !valid);
+            if (firstInvalid) firstInvalid[1].focus();
         }
     });
 

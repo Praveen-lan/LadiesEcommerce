@@ -1,0 +1,11 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}Admin credentials updated{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>Admin credentials updated</h1>
+    <p>Your username and password have been saved. Sign in with the new credentials.</p>
+    <p><a class="button" href="{% url 'admin:login' %}">Go to admin login</a></p>
+</div>
+{% endblock %}

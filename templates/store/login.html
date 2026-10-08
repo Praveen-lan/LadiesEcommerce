@@ -20,7 +20,11 @@
 </head>
 <body>
     <main class="login-page">
+        {% if login_content.background_image %}
+        <div class="login-backdrop login-background-configured is-visible" style="background-image: url('{{ login_content.background_image.url }}');"></div>
+        {% else %}
         {% for image in login_images %}<div class="login-backdrop {% if forloop.first %}is-visible{% endif %}" style="background-image: url('{{ image.image_source }}');"></div>{% endfor %}
+        {% endif %}
         <div class="login-shade"></div>
         <div class="login-shell">
             <section class="login-story">
@@ -33,22 +37,71 @@
                 <h2>Sign in to continue</h2>
                 <p class="login-card-sub">Tell us a little about you to enter the collection.</p>
                 {% if login_error %}<div class="login-error"><i class="bi bi-exclamation-circle me-1"></i>{{ login_error }}</div>{% endif %}
-                <form method="post">
+                <form method="post" id="login-form" novalidate>
                     {% csrf_token %}
                     <div class="login-field">
                         <label class="login-label" for="login-name">Your name</label>
                         <!-- <i class="bi bi-person"></i> -->
-                        <input class="form-control login-input" id="login-name" name="name" type="text" placeholder="Enter your name" autocomplete="name" required>
+                        <input class="form-control login-input" id="login-name" name="name" type="text" placeholder="Enter your name" autocomplete="name" maxlength="150" title="Use letters and spaces only." aria-describedby="login-name-error" {% if login_errors.name %}aria-invalid="true"{% endif %} required>
+                        <div class="invalid-feedback{% if login_errors.name %} d-block{% else %} d-none{% endif %}" id="login-name-error">{% if login_errors.name %}{{ login_errors.name }}{% else %}Please enter name.{% endif %}</div>
                     </div>
                     <div class="login-field">
                         <label class="login-label" for="login-phone">Phone number</label>
                         <!-- <i class="bi bi-phone"></i> -->
-                            <input class="form-control login-input" id="login-phone" name="phone" type="tel" placeholder="Ex: 9876543210" autocomplete="tel" inputmode="numeric" maxlength="10" pattern="[6-9][0-9]{9}" title="Enter a 10 digit mobile number starting with 6, 7, 8 or 9." required>
+                            <input class="form-control login-input" id="login-phone" name="phone" type="tel" placeholder="Ex: 9876543210" autocomplete="tel" inputmode="numeric" maxlength="10" pattern="[6-9][0-9]{9}" title="Enter a 10 digit mobile number starting with 6, 7, 8 or 9." aria-describedby="login-phone-error" {% if login_errors.phone %}aria-invalid="true"{% endif %} required>
+                        <div class="invalid-feedback{% if login_errors.phone %} d-block{% else %} d-none{% endif %}" id="login-phone-error">{% if login_errors.phone %}{{ login_errors.phone }}{% else %}Please enter mobile number.{% endif %}</div>
                     </div>
                     <button class="btn btn-gold login-button" type="submit">Continue <i class="bi bi-arrow-right ms-1"></i></button>
                 </form>
             </section>
         </div>
     </main>
+    <script>
+        const loginForm = document.getElementById('login-form');
+        const loginName = document.getElementById('login-name');
+        const loginPhone = document.getElementById('login-phone');
+        const loginNameError = document.getElementById('login-name-error');
+        const loginPhoneError = document.getElementById('login-phone-error');
+
+        function setLoginError(field, error, message) {
+            const invalid = !field.value.trim();
+            if (invalid) {
+                field.setAttribute('aria-invalid', 'true');
+                error.textContent = message;
+            } else {
+                field.removeAttribute('aria-invalid');
+            }
+            error.classList.toggle('d-block', invalid);
+            error.classList.toggle('d-none', !invalid);
+            return !invalid;
+        }
+
+        loginForm.addEventListener('submit', (event) => {
+            const nameValid = setLoginError(loginName, loginNameError, 'Please enter name.');
+            const phoneValid = setLoginError(loginPhone, loginPhoneError, 'Please enter mobile number.');
+            if (!nameValid || !phoneValid) {
+                event.preventDefault();
+                if (!nameValid) loginName.focus();
+                else loginPhone.focus();
+            }
+        });
+
+        loginName.addEventListener('input', () => {
+            if (loginName.value.trim()) setLoginError(loginName, loginNameError, 'Please enter name.');
+        });
+        loginPhone.addEventListener('input', () => {
+            if (loginPhone.value.trim()) setLoginError(loginPhone, loginPhoneError, 'Please enter mobile number.');
+        });
+
+        loginName.addEventListener('input', () => {
+            const cursor = loginName.selectionStart;
+            const filteredBeforeCursor = loginName.value.slice(0, cursor).replace(/[^\p{L}\p{M} ]/gu, '');
+            const filteredValue = loginName.value.replace(/[^\p{L}\p{M} ]/gu, '');
+            if (filteredValue !== loginName.value) {
+                loginName.value = filteredValue;
+                loginName.setSelectionRange(filteredBeforeCursor.length, filteredBeforeCursor.length);
+            }
+        });
+    </script>
 </body>
 </html>

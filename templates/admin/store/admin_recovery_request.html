@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}Recover admin account{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>Recover admin account</h1>
+    <p>Enter the email address registered to your active admin account. We will send a short-lived verification code if it matches.</p>
+    <form method="post">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="errornote">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="form-row">
+            {{ form.email.errors }}
+            {{ form.email.label_tag }}
+            {{ form.email }}
+        </div>
+        <div class="submit-row">
+            <input type="submit" value="Email verification code" class="default">
+        </div>
+    </form>
+    <p><a href="{% url 'admin:login' %}">Back to admin login</a></p>
+</div>
+{% endblock %}

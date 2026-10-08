@@ -1,6 +1,8 @@
 from decimal import Decimal
 from io import BytesIO
+import os
 import tempfile
+from datetime import timedelta
 
 from django import forms
 from django.contrib import admin
@@ -10,9 +12,12 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import models
 from django.test import TestCase
 from django.urls import reverse
+from django.utils.formats import date_format
+from django.utils import timezone
 from PIL import Image
 
 from .cart import Cart
+from .forms import PaymentProofForm
 from .models import (
     AboutPage,
     Category,
@@ -61,6 +66,12 @@ def inline_management_data(response):
             }
         )
     return data
+
+
+def uploaded_test_image(name="receipt.png"):
+    buffer = BytesIO()
+    Image.new("RGB", (8, 8), "purple").save(buffer, format="PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
 
 
 class StorePageTests(TestCase):
@@ -195,6 +206,25 @@ class StorePageTests(TestCase):
         self.assertNotIn(">Everyday Comfort</a>", footer)
         self.assertIn("About Us", footer)
 
+    def test_footer_does_not_render_a_map(self):
+        SiteSettings.objects.update(map_embed_url="https://maps.google.com/maps?q=Chennai")
+
+        response = self.client.get(reverse("store:home"))
+        footer = response.content.decode().split("<footer", 1)[1].split("</footer>", 1)[0]
+
+        self.assertNotIn("<iframe", footer)
+        self.assertNotIn("footer-map-frame", footer)
+
+    def test_navbar_uses_the_logo_from_site_settings(self):
+        site = SiteSettings.objects.first()
+        site.logo = "site/admin-managed-logo.png"
+        site.save(update_fields=["logo"])
+
+        response = self.client.get(reverse("store:home"))
+
+        self.assertContains(response, 'src="/media/site/admin-managed-logo.png"')
+        self.assertContains(response, 'alt="Swathi Designers"')
+
     def test_seo_metadata_and_structured_data(self):
         seo, _ = SEO.objects.get_or_create()
         seo.default_title = "Swathi Designers SEO Test"
@@ -284,12 +314,13 @@ class CheckoutNameValidationTests(TestCase):
             {
                 "name": name,
                 "phone": phone,
-                "email": "",
+                "email": "checkout@example.com",
                 "address": "18 Heritage Street",
                 "city": city,
                 "state": state,
                 "pincode": "600040",
                 "payment_method": "qr",
+                "payment_screenshot": uploaded_test_image(),
             },
         )
 
@@ -315,6 +346,64 @@ class CheckoutNameValidationTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(Order.objects.get().name, "Anne-Marie O'Neil")
+
+    def test_every_delivery_field_is_validated_and_errors_are_rendered(self):
+        response = self.client.post(
+            self.checkout_url,
+            {
+                "name": "",
+                "phone": "abcdefghij",
+                "email": "not-an-email",
+                "address": "",
+                "city": "#",
+                "state": "#",
+                "pincode": "12",
+                "payment_method": "qr",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        for message in (
+            "Please enter a valid name.",
+            "Please give correct number.",
+            "Please enter a valid email address.",
+            "Please enter a delivery address",
+            "Please enter a valid city name.",
+            "Please enter a valid state name.",
+            "Please enter a valid 6-digit PIN code.",
+            "Please upload payment screenshot.",
+        ):
+            with self.subTest(message=message):
+                self.assertContains(response, message)
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_missing_required_checkout_fields_show_field_specific_errors(self):
+        response = self.client.post(
+            self.checkout_url,
+            {
+                "name": "Checkout Customer",
+                "phone": "9876543210",
+                "email": "",
+                "address": "",
+                "city": "",
+                "state": "",
+                "pincode": "",
+                "payment_method": "qr",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        for message in (
+            "Please enter email.",
+            "Please enter address.",
+            "Please enter city.",
+            "Please enter state.",
+            "Please enter pincode.",
+            "Please upload payment screenshot.",
+        ):
+            with self.subTest(message=message):
+                self.assertContains(response, message)
+        self.assertEqual(Order.objects.count(), 0)
 
     def test_invalid_phone_values_are_rejected_without_creating_orders(self):
         for phone in (
@@ -372,11 +461,12 @@ class CheckoutNameValidationTests(TestCase):
                 self.assertEqual(Order.objects.count(), 0)
                 self.assertEqual(self.client.session["cart"], {str(self.saree.pk): 1})
 
-    def test_blank_optional_state_is_allowed(self):
+    def test_blank_required_state_is_rejected(self):
         response = self._post("Valid Customer", state="")
 
-        self.assertEqual(response.status_code, 302)
-        self.assertEqual(Order.objects.get().state, "")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Please enter state.")
+        self.assertEqual(Order.objects.count(), 0)
 
 
 class CustomerLoginIdentityTests(TestCase):
@@ -391,7 +481,7 @@ class CustomerLoginIdentityTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "already registered under a different name")
+        self.assertContains(response, "Please enter username")
         self.assertNotIn("customer_id", self.client.session)
         self.customer.refresh_from_db()
         self.assertEqual(self.customer.name, "User A")
@@ -425,6 +515,38 @@ class CustomerLoginIdentityTests(TestCase):
         self.assertContains(response, "Welcome to Swathi Designers")
         self.assertNotIn("otp", content.lower())
 
+    def test_submitting_login_with_both_fields_empty_shows_both_errors(self):
+        response = self.client.post(
+            reverse("store:login"),
+            {"name": "", "phone": ""},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Please enter name.")
+        self.assertContains(response, "Please enter mobile number.")
+        self.assertEqual(Customer.objects.count(), 1)
+        self.assertNotIn("customer_id", self.client.session)
+
+    def test_login_rejects_non_alphabetic_names_with_the_requested_message(self):
+        for name in ("Name123", "Name@", "Name-R", "12345"):
+            with self.subTest(name=name):
+                response = self.client.post(
+                    reverse("store:login"),
+                    {"name": name, "phone": "9123456789"},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "Please enter username")
+                self.assertFalse(Customer.objects.filter(phone="9123456789").exists())
+
+    def test_login_accepts_unicode_names_and_spaces(self):
+        response = self.client.post(
+            reverse("store:login"),
+            {"name": "Élodie Devi", "phone": "9123456789"},
+        )
+
+        self.assertRedirects(response, reverse("store:home"))
+        self.assertTrue(Customer.objects.filter(name="Élodie Devi").exists())
+
     def test_login_page_left_panel_uses_admin_managed_copy(self):
         LoginPage.objects.create(
             heading="Find Your Signature Weave",
@@ -456,6 +578,12 @@ class LoginPageAdminTests(TestCase):
     def setUp(self):
         admin_user = User.objects.create_superuser("logincontent", "login@example.com", "pw12345!")
         self.client.force_login(admin_user)
+        SiteSettings.objects.create(shop_name="Swathi Designers")
+        self.media_dir = tempfile.TemporaryDirectory()
+        self.settings_override = self.settings(MEDIA_ROOT=self.media_dir.name)
+        self.settings_override.enable()
+        self.addCleanup(self.settings_override.disable)
+        self.addCleanup(self.media_dir.cleanup)
 
     def test_login_page_content_is_editable_from_admin(self):
         response = self.client.post(
@@ -474,14 +602,34 @@ class LoginPageAdminTests(TestCase):
         self.assertEqual(page.description, "A new login description.")
         self.assertEqual(page.tagline, "A new login tagline")
 
+    def test_background_image_is_uploadable_and_used_on_login_page(self):
+        response = self.client.post(
+            reverse("admin:store_loginpage_add"),
+            {
+                "heading": "Image Login",
+                "description": "Background image test",
+                "tagline": "Welcome",
+                "background_image": uploaded_test_image("login.png"),
+                "_save": "Save",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        page = LoginPage.objects.get()
+        login = self.client.get(reverse("store:login"))
+        self.assertContains(login, page.background_image.url)
+
 class AdminPasswordResetTests(TestCase):
-    def test_admin_login_displays_a_working_password_reset_link(self):
+    def test_admin_login_displays_an_admin_styled_recovery_link(self):
         response = self.client.get(reverse("admin:login"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Forgotten your login credentials?")
+        self.assertContains(response, "Forgotten your password or username?")
         self.assertContains(response, reverse("admin_password_reset"))
-        self.assertEqual(self.client.get(reverse("admin_password_reset")).status_code, 200)
+        recovery = self.client.get(reverse("admin_password_reset"))
+        self.assertEqual(recovery.status_code, 200)
+        self.assertTemplateUsed(recovery, "admin/store/admin_recovery_request.html")
+        self.assertNotContains(recovery, "main-navbar")
 
 
 class SiteSettingsAdminValidationTests(TestCase):
@@ -571,7 +719,7 @@ class SiteSettingsAdminValidationTests(TestCase):
         self.assertEqual(self.settings_obj.free_shipping_above, Decimal("999.00"))
         self.assertEqual(self.settings_obj.shipping_fee, Decimal("79.00"))
 
-    def test_iframe_embed_code_is_saved_and_used_on_contact_page_and_footer(self):
+    def test_iframe_embed_code_is_saved_and_used_on_contact_page_but_not_footer(self):
         embed_code = '<iframe src="https://maps.example/embed/shop" width="600" height="450"></iframe>'
         response = self._post(map_embed_url=embed_code)
 
@@ -585,8 +733,10 @@ class SiteSettingsAdminValidationTests(TestCase):
         session.save()
         page = self.client.get(reverse("store:contact"))
         content = page.content.decode()
-        self.assertGreaterEqual(content.count('src="https://maps.example/embed/shop"'), 2)
-        self.assertGreaterEqual(content.count('href="https://maps.example/embed/shop"'), 2)
+        self.assertEqual(content.count('src="https://maps.example/embed/shop"'), 1)
+        self.assertEqual(content.count('href="https://maps.example/embed/shop"'), 1)
+        footer = content.split("<footer", 1)[1].split("</footer>", 1)[0]
+        self.assertNotIn("<iframe", footer)
 
     def test_whatsapp_is_normalised_to_digits(self):
         self._post(whatsapp="+91 98765-43210")
@@ -1721,6 +1871,46 @@ class SareeCardDetailsTests(TestCase):
 
         self.assertContains(response, '<span class="saree-product-id">Product ID: SD-SILK-1001</span>')
 
+    def test_product_card_add_to_cart_returns_to_the_current_page(self):
+        collection_url = reverse("store:category_detail", args=[self.category.slug])
+        current_page = f"{collection_url}?collection=card"
+        response = self.client.post(
+            reverse("store:add_to_cart"),
+            {
+                "saree_id": self.saree.pk,
+                "quantity": "1",
+                "redirect": current_page,
+            },
+        )
+
+        self.assertRedirects(response, current_page, fetch_redirect_response=False)
+        self.assertEqual(Cart(self.client).count(), 1)
+
+    def test_product_card_form_adds_without_page_navigation_or_scroll_restoration(self):
+        collection_url = reverse("store:category_detail", args=[self.category.slug])
+        current_page = f"{collection_url}?collection=card"
+        response = self.client.get(current_page)
+
+        self.assertContains(response, f'name="redirect" value="{current_page}"')
+        self.assertContains(response, "'X-Requested-With': 'XMLHttpRequest'")
+        self.assertContains(response, "event.preventDefault()")
+        self.assertNotContains(response, "saree-card-scroll:")
+        self.assertNotContains(response, "window.scrollTo(0, savedScroll.y)")
+
+    def test_product_card_add_to_cart_returns_json_without_redirecting(self):
+        response = self.client.post(
+            reverse("store:add_to_cart"),
+            {"saree_id": self.saree.pk, "quantity": "1"},
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["success"], True)
+        self.assertEqual(response.json()["cart_count"], 1)
+        self.assertIn("added to your cart", response.json()["message"])
+        self.assertEqual(Cart(self.client).count(), 1)
+
     def test_the_card_hides_the_details_that_belong_on_the_product_page(self):
         content = self.client.get(reverse("store:category_detail", args=[self.category.slug])).content.decode()
         card = content.split("saree-card", 1)[1].split("</form>", 1)[0]
@@ -1816,6 +2006,10 @@ class CartUsesTheDiscountedAmountTests(TestCase):
             discount_percent=Decimal("20"),
             image_url="https://example.com/a.jpg",
         )
+        self.customer = Customer.objects.create(name="Cart Shopper", phone="9876543210")
+        session = self.client.session
+        session["customer_id"] = self.customer.pk
+        session.save()
 
     def test_the_cart_charges_the_final_amount_not_the_original(self):
         cart = Cart(self.client)
@@ -1827,33 +2021,100 @@ class CartUsesTheDiscountedAmountTests(TestCase):
         self.assertEqual(item["line_total"], Decimal("1600.00"))
         self.assertEqual(cart.totals()["subtotal"], Decimal("1600.00"))
 
+    def test_cart_rows_show_discount_and_gst_percentages(self):
+        session = self.client.session
+        session["cart"] = {str(self.saree.pk): 1}
+        session.save()
+
+        response = self.client.get(reverse("store:cart"))
+
+        self.assertContains(response, "Discount: 20.00% off")
+        self.assertContains(response, "GST (5.00%)")
+        self.assertContains(response, "Cart Saree</span>")
+        self.assertContains(response, "GST (5.00%)")
+        self.assertContains(response, "GST (5.00%)</span><span>&#8377; 40.00")
+        self.assertNotContains(response, "Total GST")
+        self.assertNotContains(response, "Cart Saree — GST")
+        self.assertNotContains(response, "sum-row total")
+        self.assertNotContains(response, "more for free shipping")
+
+    def test_cart_and_checkout_summaries_group_gst_by_each_admin_rate(self):
+        higher_rate_saree = Saree.objects.create(
+            name="Higher GST Saree",
+            category=self.saree.category,
+            price=Decimal("1000.00"),
+            gst_percent=Decimal("12.00"),
+            image_url="https://example.com/higher-rate.jpg",
+        )
+        session = self.client.session
+        session["cart"] = {
+            str(self.saree.pk): 1,
+            str(higher_rate_saree.pk): 1,
+        }
+        session.save()
+
+        cart_response = self.client.get(reverse("store:cart"))
+        checkout_response = self.client.get(reverse("store:checkout"))
+
+        expected_breakdown = [
+            {"percent": Decimal("5.00"), "amount": Decimal("40.00")},
+            {"percent": Decimal("12.00"), "amount": Decimal("120.00")},
+        ]
+        self.assertEqual(cart_response.context["totals"]["gst_breakdown"], expected_breakdown)
+        self.assertEqual(checkout_response.context["totals"]["gst_breakdown"], expected_breakdown)
+        for response in (cart_response, checkout_response):
+            self.assertContains(response, "GST (5.00%)</span><span>&#8377; 40.00")
+            self.assertContains(response, "GST (12.00%)</span><span>&#8377; 120.00")
+        self.assertNotContains(cart_response, "Total GST")
+        self.assertNotContains(cart_response, "sum-row total")
+        self.assertContains(checkout_response, "sum-row total")
+        self.assertNotContains(checkout_response, "Total GST")
+        self.assertContains(checkout_response, "Qty: 1")
+        self.assertContains(checkout_response, "&#8377; 800.00")
+        self.assertContains(checkout_response, "&#8377; 1000.00")
+
+    def test_product_detail_add_to_cart_redirects_to_that_product(self):
+        product_url = reverse("store:saree_detail", args=[self.saree.slug])
+        response = self.client.post(
+            reverse("store:add_to_cart"),
+            {"saree_id": self.saree.pk, "quantity": "1", "redirect": product_url},
+        )
+
+        self.assertRedirects(response, product_url)
+        detail = self.client.get(product_url)
+        self.assertContains(detail, f'name="redirect" value="{product_url}"')
+        self.assertContains(detail, "saree-detail-scroll-y")
+
     def test_product_delivery_and_gst_are_shown_and_snapshotted_at_checkout(self):
         self.saree.delivery_charge = Decimal("25.00")
         self.saree.gst_percent = Decimal("18.00")
         self.saree.save()
-        customer = Customer.objects.create(name="Charge Shopper", phone="9876543210")
         session = self.client.session
-        session["customer_id"] = customer.pk
         session["cart"] = {str(self.saree.pk): 1}
         session.save()
 
         checkout = self.client.get(reverse("store:checkout"))
         totals = checkout.context["totals"]
+        self.assertContains(checkout, 'class="cart-summary checkout-order-summary"')
         self.assertEqual(totals["delivery"], Decimal("104.00"))
         self.assertEqual(totals["gst"], Decimal("144.00"))
-        self.assertContains(checkout, "GST (18.00%): &#8377; 144.00")
+        self.assertContains(checkout, "GST (18.00%)</span><span>&#8377; 144.00")
+        summary = checkout.content.decode().split('<h5>Order Summary</h5>', 1)[1]
+        self.assertNotIn("Delivery: &#8377; 25.00", summary)
+        self.assertNotIn("GST (18.00%): &#8377; 144.00", summary)
 
         response = self.client.post(
             reverse("store:checkout"),
             {
-                "name": customer.name,
-                "phone": customer.phone,
-                "email": "",
+                "name": self.customer.name,
+                "phone": self.customer.phone,
+                "email": "checkout@example.com",
                 "address": "18 Heritage Street",
                 "city": "Chennai",
                 "state": "Tamil Nadu",
                 "pincode": "600040",
                 "payment_method": "qr",
+                "payment_screenshot": uploaded_test_image(),
             },
         )
 
@@ -1865,23 +2126,22 @@ class CartUsesTheDiscountedAmountTests(TestCase):
         self.assertEqual(order.total, Decimal("1048.00"))
 
     def test_checkout_and_order_confirmation_use_the_discounted_snapshot(self):
-        customer = Customer.objects.create(name="Discount Shopper", phone="9876543210")
         session = self.client.session
-        session["customer_id"] = customer.pk
         session["cart"] = {str(self.saree.pk): 1}
         session.save()
 
         response = self.client.post(
             reverse("store:checkout"),
             {
-                "name": customer.name,
-                "phone": customer.phone,
-                "email": "",
+                "name": self.customer.name,
+                "phone": self.customer.phone,
+                "email": "checkout@example.com",
                 "address": "18 Heritage Street",
                 "city": "Chennai",
                 "state": "Tamil Nadu",
                 "pincode": "600040",
                 "payment_method": "qr",
+                "payment_screenshot": uploaded_test_image(),
             },
         )
 
@@ -1889,7 +2149,23 @@ class CartUsesTheDiscountedAmountTests(TestCase):
         order_item = Order.objects.get().items.get()
         self.assertEqual(order_item.price, Decimal("800.00"))
         self.assertEqual(order_item.line_total, Decimal("800.00"))
-        self.assertContains(self.client.get(response.url), "&#8377; 800")
+        order = Order.objects.get()
+        confirmation = self.client.get(response.url)
+        self.assertContains(confirmation, "&#8377; 800")
+        self.assertContains(confirmation, "GST (5.00%): &#8377; 40.00")
+        self.assertContains(
+            confirmation,
+            timezone.localtime(order.created_at).strftime("%Y/%m/%d %I:%M:%S %p %Z"),
+        )
+        confirmation_html = confirmation.content.decode()
+        self.assertIn(
+            '</div>\n        <div class="d-flex gap-2 justify-content-center flex-wrap mt-4">',
+            confirmation_html,
+        )
+        self.assertGreater(
+            confirmation_html.index("Continue Shopping"),
+            confirmation_html.index("</div>\n        <div class="),
+        )
 
 
 class FloatingWhatsAppButtonTests(TestCase):
@@ -2049,11 +2325,44 @@ class PaymentVerificationUploadTests(TestCase):
         self.assertEqual(proof.status, PaymentProof.Status.PENDING)
         self.assertTrue(proof.screenshot.name.startswith("payment-proofs/"))
         self.assertIsNotNone(proof.submitted_at)
+        self.assertIsNotNone(proof.updated_at)
 
-    def test_checkout_still_succeeds_when_no_screenshot_is_uploaded(self):
+    def test_receipt_rejects_invalid_extension_content_and_oversized_images(self):
+        invalid_extension = PaymentProofForm(
+            {},
+            {"screenshot": self._image("receipt.gif")},
+        )
+        invalid_content = PaymentProofForm(
+            {},
+            {"screenshot": SimpleUploadedFile("receipt.png", b"not an image", content_type="image/png")},
+        )
+        large_pixels = Image.frombytes("RGB", (1500, 1500), os.urandom(1500 * 1500 * 3))
+        large_buffer = BytesIO()
+        large_pixels.save(large_buffer, format="PNG")
+        oversized = PaymentProofForm(
+            {},
+            {"screenshot": SimpleUploadedFile("large.png", large_buffer.getvalue(), content_type="image/png")},
+        )
+
+        for form in (invalid_extension, invalid_content, oversized):
+            with self.subTest(form=form):
+                self.assertFalse(form.is_valid())
+                self.assertIn("Please upload valid payment receipt", str(form.errors))
+
+    def test_payment_proof_model_field_rejects_unsupported_image_extensions(self):
+        screenshot_field = PaymentProof._meta.get_field("screenshot")
+
+        with self.assertRaises(ValidationError):
+            screenshot_field.clean(self._image("receipt.gif"), None)
+
+        self.assertIsNotNone(screenshot_field.clean(self._image("receipt.png"), None))
+
+    def test_checkout_rejects_a_missing_screenshot_without_creating_an_order(self):
         response = self.client.post(reverse("store:checkout"), self._checkout_payload(payment_screenshot=""))
 
-        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Please upload payment screenshot.")
+        self.assertEqual(Order.objects.count(), 0)
         self.assertEqual(PaymentProof.objects.count(), 0)
 
     def test_a_screenshot_can_be_uploaded_after_the_order_is_placed(self):
@@ -2095,7 +2404,7 @@ class PaymentVerificationUploadTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(PaymentProof.objects.count(), 0)
-        self.assertContains(response, "Upload the payment screenshot.")
+        self.assertContains(response, "Please upload valid payment receipt")
 
     def test_another_customers_order_cannot_be_used_to_attach_a_screenshot(self):
         someone_else = Order.objects.create(
@@ -2165,6 +2474,8 @@ class PaymentVerificationUploadTests(TestCase):
             screenshot=self._image(),
         )
         proof.save()
+        old_timestamp = timezone.now() - timedelta(days=1)
+        PaymentProof.objects.filter(pk=proof.pk).update(updated_at=old_timestamp)
 
         self.client.force_login(self.admin)
         response = self.client.post(
@@ -2182,6 +2493,53 @@ class PaymentVerificationUploadTests(TestCase):
         self.assertEqual(proof.status, PaymentProof.Status.VERIFIED)
         self.assertEqual(proof.reviewed_by, self.admin)
         self.assertIsNotNone(proof.reviewed_at)
+        self.assertGreater(proof.updated_at, old_timestamp)
+
+    def test_admin_detail_shows_uploaded_screenshot_and_latest_updated_time(self):
+        proof = PaymentProof(
+            customer=self.customer,
+            customer_name="Scan Shopper",
+            amount=Decimal("1050.00"),
+            screenshot=self._image(),
+        )
+        proof.save()
+
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse("admin:store_paymentproof_change", args=[proof.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        screenshot_url = reverse("admin:store_paymentproof_screenshot", args=[proof.pk])
+        self.assertContains(response, screenshot_url)
+        self.assertContains(response, "Updated time")
+        self.assertContains(response, date_format(timezone.localtime(proof.updated_at)))
+        self.assertIn(
+            "updated_at",
+            admin.site._registry[PaymentProof].get_readonly_fields(response.wsgi_request, proof),
+        )
+
+    def test_payment_screenshot_preview_is_served_only_to_admin_users(self):
+        proof = PaymentProof(
+            customer=self.customer,
+            customer_name="Scan Shopper",
+            amount=Decimal("1050.00"),
+            screenshot=self._image(),
+        )
+        proof.save()
+        screenshot_url = reverse("admin:store_paymentproof_screenshot", args=[proof.pk])
+
+        self.client.force_login(self.admin)
+        response = self.client.get(screenshot_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/png")
+        self.assertTrue(response.streaming)
+        self.assertTrue(b"".join(response.streaming_content).startswith(b"\x89PNG"))
+
+        self.client.logout()
+        response = self.client.get(screenshot_url)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(reverse("admin:login"), response.url)
 
     def test_a_paid_order_is_listed_as_payment_done(self):
         order = Order.objects.create(

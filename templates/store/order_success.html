@@ -11,7 +11,7 @@
             <h2 class="text-success mb-1">Order Confirmed!</h2>
             <p class="text-muted mb-2">Thank you, <strong>{{ order.name }}</strong>. Your payment was received successfully.</p>
             <div class="order-id-chip"><i class="bi bi-receipt"></i> Order ID: {{ order.order_id }}</div>
-            <div class="small text-muted mt-2"><i class="bi bi-calendar3 me-1"></i> Order Date: {{ order.created_at|date:"Ymd" }}</div>
+            <div class="small text-muted mt-2"><i class="bi bi-calendar3 me-1"></i> Order Date &amp; Time: {{ order.created_at|date:"Y/m/d h:i:s A T" }}</div>
 
             <div class="text-start mt-4">
                 <div class="row g-3">
@@ -39,14 +39,14 @@
                         <tbody>
                             {% for item in order.items.all %}
                             <tr>
-                                <td class="ps-0">{{ item.name }}</td>
+                                <td class="ps-0">{{ item.name }}<span class="d-block text-muted">GST ({{ item.gst_percent }}%): &#8377; {{ item.gst_amount|floatformat:2 }}</span></td>
                                 <td class="text-center">x{{ item.quantity }}</td>
                                 <td class="text-end pe-0 fw-semibold">&#8377; {{ item.line_total|floatformat:0 }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>
                         <tfoot>
-                            <tr><td colspan="2" class="ps-0 text-muted">Subtotal / Delivery / GST</td>
+                            <tr><td colspan="2" class="ps-0 text-muted">Subtotal / Delivery / Total GST</td>
                                 <td class="text-end pe-0 fw-semibold">&#8377; {{ order.subtotal|floatformat:0 }} / {% if order.delivery_charge %}&#8377; {{ order.delivery_charge|floatformat:0 }}{% else %}Free{% endif %} / &#8377; {{ order.gst|floatformat:0 }}</td></tr>
                             <tr><td colspan="2" class="ps-0 fw-bold">Total</td>
                                 <td class="text-end pe-0 fw-bold text-danger">&#8377; {{ order.total|floatformat:0 }}</td></tr>
@@ -88,7 +88,7 @@
                                 </div>
                                 <div class="col-md-6">
                                     <label class="form-label small fw-semibold" for="proof_screenshot">Payment screenshot</label>
-                                    <input type="file" class="form-control" id="proof_screenshot" name="screenshot" accept="image/*" required>
+                                    <input type="file" class="form-control" id="proof_screenshot" name="screenshot" accept=".jpg,.jpeg,.jfif,.png,.webp" required>
                                 </div>
                             </div>
                             {% if proof_form.non_field_errors or proof_form.screenshot.errors %}
@@ -102,10 +102,10 @@
                 </div>
             </div>
 
-            <div class="d-flex gap-2 justify-content-center flex-wrap">
-                <a href="{% url 'store:catalog' %}" class="btn btn-gold rounded-pill px-4">Continue Shopping <i class="bi bi-arrow-right"></i></a>
-                <a href="{% url 'store:home' %}" class="btn btn-outline-gold rounded-pill px-4">Back to Home</a>
-            </div>
+        </div>
+        <div class="d-flex gap-2 justify-content-center flex-wrap mt-4">
+            <a href="{% url 'store:catalog' %}" class="btn btn-gold rounded-pill px-4">Continue Shopping <i class="bi bi-arrow-right"></i></a>
+            <a href="{% url 'store:home' %}" class="btn btn-outline-gold rounded-pill px-4">Back to Home</a>
         </div>
     </div>
 </section>

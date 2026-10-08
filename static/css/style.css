@@ -44,9 +44,10 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 }
 .main-navbar .collections-category-title { max-width: 25ch; overflow-wrap: anywhere; line-height: 1.3; }
 .main-navbar .collections-category-link i { color: var(--gold-dark); font-size: .75rem; }
-.main-navbar .collection-submenu { display: none; position: static; max-height: min(50vh, 280px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; margin: 0; padding: 4px 0 8px 12px; list-style: none; }
+.main-navbar .collection-submenu { display: none; position: static; max-height: min(50vh, 280px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; margin: 0; padding: 4px 0 8px 12px; list-style: none; scrollbar-width: thin; }
 .main-navbar .collections-category:hover > .collection-submenu,
 .main-navbar .collections-category.is-open > .collection-submenu { display: block; }
+.main-navbar .collections-category-label { cursor: default; }
 .main-navbar .collections-child { padding-left: 30px; font-size: .88rem; color: var(--muted); }
 .main-navbar .collections-child::before { content: '\203A'; color: var(--gold); margin-right: 8px; }
 .main-navbar .collections-empty { display: block; padding: 8px 12px; font-size: .82rem; color: var(--muted); font-style: italic; }
@@ -289,8 +290,6 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .footer-contact i { color: var(--gold); margin-right: 10px; }
 .footer-contact a { color: #c4d2ca; text-decoration: none; }
 .footer-contact a:hover { color: var(--gold); }
-.footer-map-frame { width: 100%; height: 140px; margin-top: 14px; overflow: hidden; border: 1px solid rgba(255,255,255,.2); border-radius: 8px; }
-.footer-map-frame iframe { width: 100%; height: 100%; border: 0; }
 .footer-bottom { border-top: 1px solid rgba(255,255,255,.1); padding: 18px 0; text-align: center; font-size: .84rem; color: #8fa39a; }
 .footer-bottom i { color: #e25555; }
 
@@ -318,6 +317,9 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 
 /* ===== Checkout ===== */
 .checkout-wrap { padding: 40px 0 64px; }
+@media (min-width: 992px) {
+    .checkout-order-summary { position: sticky; top: 100px; z-index: 1; }
+}
 .pay-option { border: 2px solid #e4dec6; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; cursor: pointer; transition: all .2s; background: #fff; }
 .pay-option:hover { border-color: var(--gold); }
 .pay-option input[type="radio"] { accent-color: var(--emerald); }
@@ -381,6 +383,7 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 .login-backdrop:nth-of-type(3) { animation-delay: 12s; }
 .login-backdrop.is-visible { opacity: .32; }
 .login-backdrop:not(.is-visible) { opacity: 0; }
+.login-backdrop.login-background-configured { animation: none; opacity: .32; }
 .login-page .login-backdrop:nth-of-type(1) { animation-delay: 0s; }
 .login-page .login-backdrop:nth-of-type(2) { animation-delay: 6s; }
 .login-page .login-backdrop:nth-of-type(3) { animation-delay: 12s; }
@@ -524,13 +527,12 @@ h1, h2, h3, h4, .brand-name, .hero-eyebrow { font-family: 'Playfair Display', se
 @media (min-width: 992px) {
     .main-navbar .collections-menu { max-height: none; overflow: visible; }
     .main-navbar .collection-submenu {
-        position: absolute; top: 0; left: 100%; width: 260px; height: min(70vh, 252px);
+        position: absolute; top: 0; left: 100%; width: 260px; max-height: min(70vh, 320px);
         box-sizing: border-box; overflow-y: auto; overflow-x: hidden;
-        scrollbar-width: none; -ms-overflow-style: none;
+        scrollbar-width: thin;
         margin: 0; padding: 8px; border-radius: 12px;
         background: #fff; box-shadow: 0 12px 30px rgba(0,0,0,.15);
     }
-    .main-navbar .collection-submenu::-webkit-scrollbar { display: none; }
     .main-navbar .collections-child {
         display: flex; align-items: flex-start; gap: 8px; white-space: normal;
     }

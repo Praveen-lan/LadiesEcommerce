@@ -41,6 +41,7 @@
                     <form action="{% url 'store:add_to_cart' %}" method="post" class="mt-3">
                         {% csrf_token %}
                         <input type="hidden" name="saree_id" value="{{ saree.id }}">
+                        <input type="hidden" name="redirect" value="{{ request.get_full_path }}">
                         <div class="d-flex align-items-center gap-3 flex-wrap">
                             <div class="qty-control qty-lg">
                                 <button class="qty-btn" type="button" onclick="qty('minus')">-</button>
@@ -84,6 +85,26 @@
 
 {% block extra_js %}
 <script>
+    const addToCartForm = document.querySelector('form[action="{% url 'store:add_to_cart' %}"]');
+    if (addToCartForm) {
+        addToCartForm.addEventListener('submit', () => {
+            try {
+                sessionStorage.setItem('saree-detail-scroll-y', String(window.scrollY));
+            } catch (error) {
+                // Navigation remains on this page even when browser storage is unavailable.
+            }
+        });
+        try {
+            const savedScrollY = sessionStorage.getItem('saree-detail-scroll-y');
+            if (savedScrollY !== null) {
+                sessionStorage.removeItem('saree-detail-scroll-y');
+                requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo(0, Number(savedScrollY) || 0)));
+            }
+        } catch (error) {
+            // The normal browser scroll position is left unchanged.
+        }
+    }
+
     function qty(dir) {
         const input = document.getElementById('qty-in');
         let v = parseInt(input.value) || 1;

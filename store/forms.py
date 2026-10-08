@@ -1,15 +1,15 @@
+import os
 import re
 
 from django import forms
-from django.conf import settings
-from django.contrib.auth import forms as auth_forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.core.mail import EmailMultiAlternatives
 from django.core.validators import URLValidator
-from django.template import loader
 
 from .models import ContactMessage, Saree, SiteSettings, SubCategory
 from .maps import extract_map_source
+from .validators import validate_payment_image_extension
 
 PHONE_RE = re.compile(r"[0-9]{10}")
 MOBILE_RE = re.compile(r"[6-9][0-9]{9}")
@@ -107,10 +107,13 @@ class PaymentProofForm(forms.Form):
     """Validates the payment screenshot a customer uploads after scanning the QR."""
 
     MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
-
     screenshot = forms.ImageField(
         required=True,
-        error_messages={"required": "Upload the payment screenshot."},
+        error_messages={
+            "required": "Please upload valid payment receipt",
+            "invalid_image": "Please upload valid payment receipt",
+            "invalid": "Please upload valid payment receipt",
+        },
     )
     reference = forms.CharField(
         required=False,
@@ -125,9 +128,72 @@ class PaymentProofForm(forms.Form):
 
     def clean_screenshot(self):
         screenshot = self.cleaned_data["screenshot"]
+        try:
+            validate_payment_image_extension(screenshot)
+        except ValidationError as exc:
+            raise ValidationError("Please upload valid payment receipt") from exc
         if screenshot.size > self.MAX_SCREENSHOT_BYTES:
-            raise ValidationError("The screenshot must be smaller than 5 MB.")
+            raise ValidationError("Please upload valid payment receipt. The image must be smaller than 5 MB.")
         return screenshot
+
+
+class AdminRecoveryEmailForm(forms.Form):
+    email = forms.EmailField(label="Admin email address", max_length=254)
+
+
+class AdminRecoveryCodeForm(forms.Form):
+    code = forms.RegexField(
+        regex=r"^[0-9]{6}$",
+        label="Verification code",
+        error_messages={"invalid": "Enter the six-digit code from your email."},
+    )
+
+
+class AdminRecoveryCredentialsForm(forms.Form):
+    username = forms.CharField(label="New username", max_length=150)
+    password1 = forms.CharField(
+        label="New password",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+    password2 = forms.CharField(
+        label="Confirm new password",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+
+    def __init__(self, *args, user, **kwargs):
+        self.user = user
+        super().__init__(*args, **kwargs)
+
+    def clean_username(self):
+        username = self.cleaned_data["username"].strip()
+        user_model = get_user_model()
+        username_field = user_model.USERNAME_FIELD
+        try:
+            user_model._meta.get_field(username_field).clean(username, self.user)
+        except ValidationError as exc:
+            raise ValidationError(exc.messages) from exc
+        if (
+            user_model._default_manager.filter(**{f"{username_field}__iexact": username})
+            .exclude(pk=self.user.pk)
+            .exists()
+        ):
+            raise ValidationError("That username is already in use.")
+        return username
+
+    def clean(self):
+        cleaned_data = super().clean()
+        password1 = cleaned_data.get("password1")
+        password2 = cleaned_data.get("password2")
+        if password1 and password2 and password1 != password2:
+            self.add_error("password2", "The two password fields did not match.")
+        if password1:
+            try:
+                validate_password(password1, user=self.user)
+            except ValidationError as exc:
+                self.add_error("password1", exc)
+        return cleaned_data
 
 
 class ContactForm(forms.ModelForm):
@@ -248,39 +314,4 @@ class SiteSettingsForm(forms.ModelForm):
         except ValidationError as error:
             raise ValidationError(error.messages, code="invalid") from error
         return value
-
-
-class PasswordResetForm(auth_forms.PasswordResetForm):
-    """Password reset form that reports delivery failures instead of hiding them.
-
-    Django's built-in form swallows every send error, so a misconfigured mail
-    server silently turned into "we emailed you" with no email and a 500 page.
-    Here the failure propagates to the view, which can re-render the form with a
-    readable error.
-    """
-
-    def send_mail(
-        self,
-        subject_template_name,
-        email_template_name,
-        context,
-        from_email,
-        to_email,
-        html_email_template_name=None,
-    ):
-        subject = "".join(loader.render_to_string(subject_template_name, context).splitlines())
-        body = loader.render_to_string(email_template_name, context)
-        message = EmailMultiAlternatives(
-            subject,
-            body,
-            from_email or settings.DEFAULT_FROM_EMAIL,
-            [to_email],
-        )
-        if html_email_template_name is not None:
-            message.attach_alternative(
-                loader.render_to_string(html_email_template_name, context),
-                "text/html",
-            )
-        message.send()
-        return message
 

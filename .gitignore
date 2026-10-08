@@ -14,6 +14,9 @@ htmlcov/
 venv/
 env/
 
+# Collected deployment assets
+staticfiles/
+
 # Local environment overrides
 *.env
 .env

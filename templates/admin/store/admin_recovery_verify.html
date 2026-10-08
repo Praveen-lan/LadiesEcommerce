@@ -1,0 +1,24 @@
+{% extends "admin/base_site.html" %}
+
+{% block title %}Verify admin recovery code{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <h1>Verify recovery code</h1>
+    <p>If the email belongs to an active admin account, a six-digit code was sent. The code expires after 10 minutes.</p>
+    <form method="post">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="errornote">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="form-row">
+            {{ form.code.errors }}
+            {{ form.code.label_tag }}
+            {{ form.code }}
+        </div>
+        <div class="submit-row">
+            <input type="submit" value="Verify code" class="default">
+        </div>
+    </form>
+    <p><a href="{% url 'admin_password_reset' %}">Request a new code</a></p>
+    <p><a href="{% url 'admin:login' %}">Back to admin login</a></p>
+</div>
+{% endblock %}

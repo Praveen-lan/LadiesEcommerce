@@ -1,7 +1,9 @@
+import mimetypes
+
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.db import models
-from django.http import HttpResponseRedirect
+from django.http import FileResponse, Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
@@ -123,7 +125,7 @@ SUBCATEGORY_FILTER_JS = "store/admin/subcategory-filter.js"
 
 @admin.register(LoginPage)
 class LoginPageAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    fields = ("heading", "description", "tagline", "updated_at")
+    fields = ("heading", "description", "tagline", "background_image", "updated_at")
     readonly_fields = ("updated_at",)
     list_display = ("heading", "updated_at")
 
@@ -699,6 +701,7 @@ class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
 
     list_display = (
         "submitted_at",
+        "updated_at",
         "customer_name",
         "phone",
         "order_reference",
@@ -711,8 +714,8 @@ class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_filter = ("status", "payment_method", "submitted_at")
     search_fields = ("customer_name", "phone", "reference", "order__order_id", "order__name")
     date_hierarchy = "submitted_at"
-    ordering = ("-submitted_at", "-id")
-    readonly_fields = ("submitted_at", "reviewed_at", "reviewed_by", "order_details", "order_summary", "screenshot_link")
+    ordering = ("-updated_at", "-id")
+    readonly_fields = ("submitted_at", "updated_at", "reviewed_at", "reviewed_by", "order_details", "order_summary", "screenshot_link")
     fields = (
         "customer_name",
         "phone",
@@ -728,8 +731,34 @@ class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
         "reviewed_by",
         "reviewed_at",
         "submitted_at",
+        "updated_at",
     )
     actions = ("mark_verified", "mark_rejected", "mark_pending")
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "<path:object_id>/screenshot/",
+                self.admin_site.admin_view(self.payment_screenshot_view),
+                name="store_paymentproof_screenshot",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def payment_screenshot_view(self, request, object_id):
+        proof = self.get_object(request, object_id)
+        if proof is None:
+            raise Http404
+        if not self.has_view_or_change_permission(request, proof):
+            raise PermissionDenied
+        if not proof.screenshot:
+            raise Http404
+        response = FileResponse(
+            proof.screenshot.open("rb"),
+            content_type=mimetypes.guess_type(proof.screenshot.name)[0] or "application/octet-stream",
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @admin.display(description="Order details")
     def order_summary(self, obj):
@@ -747,10 +776,11 @@ class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     def screenshot_link(self, obj):
         if not obj.screenshot:
             return "No file"
+        screenshot_url = reverse("admin:store_paymentproof_screenshot", args=[obj.pk])
         return format_html(
             '<a href="{}" target="_blank" rel="noopener"><img src="{}" style="height:46px;border:1px solid #e4dec6;border-radius:6px;"></a>',
-            obj.screenshot.url,
-            obj.screenshot.url,
+            screenshot_url,
+            screenshot_url,
         )
 
     @admin.action(description="Mark selected as verified")
@@ -771,7 +801,7 @@ class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
             proof.status = status
             proof.reviewed_at = timezone.now()
             proof.reviewed_by = request.user
-            proof.save(update_fields=["status", "reviewed_at", "reviewed_by"])
+            proof.save(update_fields=["status", "reviewed_at", "reviewed_by", "updated_at"])
             changed += 1
         self.message_user(request, f"{changed} payment verification(s) updated.")
 

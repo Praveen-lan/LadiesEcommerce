@@ -36,7 +36,7 @@
                         </div>
                         <div class="mb-3">
                             <label class="form-label small fw-semibold" for="standalone_screenshot">Payment screenshot</label>
-                            <input type="file" class="form-control" id="standalone_screenshot" name="screenshot" accept="image/*" required>
+                            <input type="file" class="form-control" id="standalone_screenshot" name="screenshot" accept=".jpg,.jpeg,.jfif,.png,.webp" required>
                             {% if form.screenshot.errors %}
                                 <div class="text-danger small mt-1">{{ form.screenshot.errors|join:", " }}</div>
                             {% endif %}
