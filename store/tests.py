@@ -2465,7 +2465,11 @@ class PaymentVerificationUploadTests(TestCase):
         self.assertContains(response, "1050.00")
         self.assertContains(response, "202601010002")
         self.assertContains(response, "2 x Pay Saree")
-        self.assertContains(response, proof.screenshot.url)
+        self.assertContains(
+            response,
+            reverse("admin:store_paymentproof_screenshot", args=[proof.pk]),
+        )
+        self.assertNotContains(response, proof.screenshot.url)
 
     def test_staff_can_mark_a_screenshot_verified(self):
         proof = PaymentProof(
