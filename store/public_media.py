@@ -1,13 +1,33 @@
 import mimetypes
 from pathlib import Path
 
+from django.core.exceptions import SuspiciousFileOperation
+
 from django.conf import settings
+from django.http import FileResponse, Http404
+
+
+def serve_customer_profile_image(request, path):
+    try:
+        file_path = Path(settings.MEDIA_ROOT).joinpath("customers", path).resolve()
+        file_path.relative_to((Path(settings.MEDIA_ROOT) / "customers").resolve())
+    except (OSError, ValueError, SuspiciousFileOperation):
+        raise Http404 from None
+
+    if not file_path.is_file():
+        raise Http404
+
+    content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+    response = FileResponse(file_path.open("rb"), content_type=content_type)
+    response["Cache-Control"] = "public, max-age=300"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 class PublicMediaFiles:
     """Serve public image uploads dynamically without exposing private uploads."""
 
-    public_directories = {"banners", "categories", "payment-qr", "sarees", "site"}
+    public_directories = {"banners", "categories", "customers", "payment-qr", "sarees", "site"}
     chunk_size = 64 * 1024
 
     def __init__(self, application):

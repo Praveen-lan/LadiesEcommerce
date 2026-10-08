@@ -11,6 +11,8 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
+from store.public_media import PublicMediaFiles
+
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'sareeshop.settings')
 
-application = get_wsgi_application()
+application = PublicMediaFiles(get_wsgi_application())

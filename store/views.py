@@ -337,9 +337,8 @@ def _login_customer(request, customer):
     """Bind this browser session to ``customer``.
 
     The session key is rotated first so a pre-login session id can never be
-    replayed, and no leftover sign-in state is carried across the handover. All
-    per-visitor state (including the cart) stays inside this session, so it is
-    never visible to another browser.
+    replayed. The customer's cart is stored separately against the account so
+    it remains available in the customer's other signed-in browsers.
     """
     request.session.cycle_key()
     request.session["customer_id"] = customer.pk

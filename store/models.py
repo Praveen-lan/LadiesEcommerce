@@ -514,6 +514,38 @@ class Customer(models.Model):
         return f"{self.name} ({self.phone})"
 
 
+class ShoppingCart(models.Model):
+    customer = models.OneToOneField(
+        Customer,
+        on_delete=models.CASCADE,
+        related_name="shopping_cart",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Cart for {self.customer}"
+
+
+class CartItem(models.Model):
+    cart = models.ForeignKey(
+        ShoppingCart,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
+    saree = models.ForeignKey(Saree, on_delete=models.CASCADE, related_name="cart_items")
+    quantity = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=("cart", "saree"), name="unique_saree_per_shopping_cart"),
+        ]
+
+    def __str__(self):
+        return f"{self.saree} x {self.quantity}"
+
+
 class OTPRequest(models.Model):
     phone = models.CharField(max_length=30, db_index=True)
     code = models.CharField(max_length=6)

@@ -339,7 +339,7 @@ class CheckoutNameValidationTests(TestCase):
                 self.assertContains(response, "Please enter a valid name.")
                 self.assertContains(response, f'value="{name}"')
                 self.assertEqual(Order.objects.count(), 0)
-                self.assertEqual(self.client.session["cart"], {str(self.saree.pk): 1})
+                self.assertEqual(Cart(self.client).count(), 1)
 
     def test_name_with_letters_and_allowed_punctuation_can_create_order(self):
         response = self._post("Anne-Marie O'Neil")
@@ -424,7 +424,7 @@ class CheckoutNameValidationTests(TestCase):
                 self.assertContains(response, "Please give correct number.")
                 self.assertContains(response, f'value="{phone}"')
                 self.assertEqual(Order.objects.count(), 0)
-                self.assertEqual(self.client.session["cart"], {str(self.saree.pk): 1})
+                self.assertEqual(Cart(self.client).count(), 1)
 
     def test_every_valid_mobile_start_creates_an_order(self):
         for name, phone in (
@@ -435,9 +435,9 @@ class CheckoutNameValidationTests(TestCase):
         ):
             with self.subTest(phone=phone):
                 Order.objects.all().delete()
-                session = self.client.session
-                session["cart"] = {str(self.saree.pk): 1}
-                session.save()
+                cart = Cart(self.client)
+                cart.clear()
+                cart.add(self.saree.pk)
                 response = self._post(name, phone=phone)
 
                 self.assertEqual(response.status_code, 302)
@@ -459,7 +459,7 @@ class CheckoutNameValidationTests(TestCase):
                 self.assertContains(response, f"Please enter a valid {field} name.")
                 self.assertContains(response, 'value="#"')
                 self.assertEqual(Order.objects.count(), 0)
-                self.assertEqual(self.client.session["cart"], {str(self.saree.pk): 1})
+                self.assertEqual(Cart(self.client).count(), 1)
 
     def test_blank_required_state_is_rejected(self):
         response = self._post("Valid Customer", state="")
@@ -1949,7 +1949,7 @@ class SareeCardDetailsTests(TestCase):
 
         self.assertNotIn("Free above", content)
 
-    def test_the_cart_prompt_uses_the_configured_remaining_amount(self):
+    def test_the_cart_uses_the_configured_free_shipping_limit(self):
         site = SiteSettings.objects.create(
             shop_name="Swathi Designers",
             free_shipping_above=Decimal("1500.00"),
@@ -1960,7 +1960,8 @@ class SareeCardDetailsTests(TestCase):
 
         response = self.client.get(reverse("store:cart"))
 
-        self.assertContains(response, "Add &#8377; 500.00 more for free shipping")
+        self.assertEqual(response.context["cart_items"][0]["saree"], self.saree)
+        self.assertEqual(response.context["totals"]["amount_to_free_shipping"], Decimal("500.00"))
         self.assertEqual(site.free_shipping_above, Decimal("1500.00"))
 
     def test_length_and_dispatch_fall_back_when_left_blank(self):

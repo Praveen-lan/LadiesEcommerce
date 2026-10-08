@@ -71,7 +71,7 @@
                 <div class="d-flex align-items-center gap-2">
                     <button class="slider-btn slider-prev" data-target="#layer-{{ layer.category.pk }}" type="button" aria-label="Scroll left"><i class="bi bi-arrow-left"></i></button>
                     <button class="slider-btn slider-next" data-target="#layer-{{ layer.category.pk }}" type="button" aria-label="Scroll right"><i class="bi bi-arrow-right"></i></button>
-                    <a href="{% url 'store:catalog' %}?tier={{ layer.category.tier }}" class="btn btn-outline-gold btn-sm rounded-pill ms-2">View All {{ layer.category.title }} <i class="bi bi-arrow-up-right"></i></a>
+                    <a href="{% url 'store:category_detail' layer.category.slug %}" class="btn btn-outline-gold btn-sm rounded-pill ms-2">View All {{ layer.category.title }} <i class="bi bi-arrow-up-right"></i></a>
                 </div>
             </div>
             <div class="card-slider" id="layer-{{ layer.category.pk }}">
@@ -80,7 +80,7 @@
                 {% endfor %}
             </div>
             <div class="text-center mt-4 d-md-none">
-                <a href="{% url 'store:catalog' %}?tier={{ layer.category.tier }}" class="btn btn-outline-gold rounded-pill">View All {{ layer.category.title }} <i class="bi bi-arrow-right"></i></a>
+                <a href="{% url 'store:category_detail' layer.category.slug %}" class="btn btn-outline-gold rounded-pill">View All {{ layer.category.title }} <i class="bi bi-arrow-right"></i></a>
             </div>
         </div>
     </section>

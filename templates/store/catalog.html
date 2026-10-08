@@ -71,7 +71,7 @@
             <div class="btn-group" role="group" aria-label="Filter by tier">
                 <a href="{% url 'store:catalog' %}{% if query %}?q={{ query }}{% endif %}" class="btn filter-btn {% if not active_tier %}active{% endif %}">All Sarees</a>
                 {% for cat in categories %}
-                <a href="{% url 'store:catalog' %}?tier={{ cat.tier }}{% if query %}&q={{ query }}{% endif %}" class="btn filter-btn {% if active_tier == cat.tier %}active{% endif %}">{{ cat.title }}</a>
+                <a href="{% url 'store:category_detail' cat.slug %}" class="btn filter-btn">{{ cat.title }}</a>
                 {% endfor %}
             </div>
         </div>

@@ -1,17 +1,10 @@
-"""Regression tests: the shopper session must be browser-specific.
-
-Bug: the cart was persisted in the database keyed on the customer account, so
-state created while signed in in one browser was shared with every other
-browser. Everything about a visitor now lives in that visitor's own session,
-and the session key is rotated when the login succeeds.
-"""
+"""Regression tests for account-shared carts and browser-specific sessions."""
 
 import pytest
-from django.apps import apps
 from django.test import Client
 from django.urls import reverse
 
-from store.models import Customer
+from store.models import CartItem, Customer, ShoppingCart
 
 
 def sign_in(client, name="Test Shopper", phone="9876543210"):
@@ -23,14 +16,11 @@ def shopper(db, site_settings):
     return Customer.objects.create(name="Test Shopper", phone="9876543210")
 
 
-def test_no_shared_cart_model_exists(db):
-    """The account-wide cart table is gone; nothing is keyed on the customer."""
-    with pytest.raises(LookupError):
-        apps.get_model("store", "CartItem")
-    assert "CartItem" not in {model.__name__ for model in apps.get_app_config("store").get_models()}
+def test_account_cart_models_are_available(db):
+    assert ShoppingCart._meta.get_field("customer").unique
+    assert CartItem._meta.get_field("cart").remote_field.model is ShoppingCart
 
 
-@pytest.mark.django_db
 def test_guest_navigation_and_cart_actions_redirect_to_login(chiffon_saree):
     guest = Client()
     login_url = reverse("store:login")
@@ -54,7 +44,6 @@ def test_guest_navigation_and_cart_actions_redirect_to_login(chiffon_saree):
         assert guest.get(reverse(f"store:{route_name}")).status_code == 200
 
 
-@pytest.mark.django_db
 def test_second_browser_starts_as_a_guest(shopper, site_settings, chiffon_saree):
     chrome = Client()
     edge = Client()
@@ -83,8 +72,7 @@ def test_second_browser_starts_as_a_guest(shopper, site_settings, chiffon_saree)
     assert "cookie" in chrome_home["Vary"].lower()
 
 
-@pytest.mark.django_db
-def test_two_authenticated_browsers_keep_separate_cart_contents(
+def test_two_authenticated_browsers_share_the_same_cart_contents(
     shopper, site_settings, chiffon_saree, silk_saree
 ):
     chrome = Client()
@@ -97,14 +85,28 @@ def test_two_authenticated_browsers_keep_separate_cart_contents(
 
     chrome_cart = chrome.get(reverse("store:cart"))
     edge_cart = edge.get(reverse("store:cart"))
+    expected_ids = [chiffon_saree.pk, silk_saree.pk]
 
-    assert chrome_cart.context["cart_count"] == 2
-    assert [item["saree"].pk for item in chrome_cart.context["cart_items"]] == [chiffon_saree.pk]
-    assert edge_cart.context["cart_count"] == 1
-    assert [item["saree"].pk for item in edge_cart.context["cart_items"]] == [silk_saree.pk]
+    assert chrome_cart.context["cart_count"] == 3
+    assert [item["saree"].pk for item in chrome_cart.context["cart_items"]] == expected_ids
+    assert edge_cart.context["cart_count"] == 3
+    assert [item["saree"].pk for item in edge_cart.context["cart_items"]] == expected_ids
+    assert ShoppingCart.objects.get(customer=shopper).items.count() == 2
+
+    edge.post(
+        reverse("store:update_cart", args=[chiffon_saree.pk]),
+        {"quantity": "4"},
+    )
+    updated_cart = chrome.get(reverse("store:cart"))
+    assert updated_cart.context["cart_count"] == 5
+    assert updated_cart.context["cart_items"][0]["quantity"] == 4
+
+    chrome.post(reverse("store:remove_from_cart", args=[silk_saree.pk]))
+    removed_cart = edge.get(reverse("store:cart"))
+    assert removed_cart.context["cart_count"] == 4
+    assert [item["saree"].pk for item in removed_cart.context["cart_items"]] == [chiffon_saree.pk]
 
 
-@pytest.mark.django_db
 def test_guest_cart_action_requires_login_then_works_after_login(shopper, site_settings, chiffon_saree):
     browser = Client()
 
@@ -124,7 +126,6 @@ def test_guest_cart_action_requires_login_then_works_after_login(shopper, site_s
     assert [item["saree"].pk for item in cart.context["cart_items"]] == [chiffon_saree.pk]
 
 
-@pytest.mark.django_db
 def test_session_key_is_rotated_on_login(db, site_settings):
     browser = Client()
     browser.get(reverse("store:home"))
@@ -138,7 +139,6 @@ def test_session_key_is_rotated_on_login(db, site_settings):
     assert before != after
 
 
-@pytest.mark.django_db
 def test_login_needs_no_second_verification_step(db, site_settings):
     browser = Client()
 
@@ -149,7 +149,6 @@ def test_login_needs_no_second_verification_step(db, site_settings):
     assert browser.session["customer_id"] == Customer.objects.get(phone="9876543210").pk
 
 
-@pytest.mark.django_db
 def test_login_does_not_leak_pre_authentication_state(db, site_settings):
     browser = Client()
 
@@ -159,7 +158,6 @@ def test_login_does_not_leak_pre_authentication_state(db, site_settings):
         assert key not in browser.session
 
 
-@pytest.mark.django_db
 def test_logout_clears_the_browser_session(shopper, site_settings):
     browser = Client()
     sign_in(browser)
@@ -171,7 +169,6 @@ def test_logout_clears_the_browser_session(shopper, site_settings):
     assert browser.get(reverse("store:home")).context["customer"] is None
 
 
-@pytest.mark.django_db
 def test_two_browsers_can_hold_different_accounts(db, site_settings):
     first = Client()
     second = Client()
@@ -183,3 +180,37 @@ def test_two_browsers_can_hold_different_accounts(db, site_settings):
 
     assert first.get(reverse("store:home")).context["customer"].pk == one.pk
     assert second.get(reverse("store:home")).context["customer"].pk == two.pk
+
+
+def test_existing_browser_cart_is_imported_once_to_the_customer_account(
+    shopper, site_settings, chiffon_saree, silk_saree
+):
+    chrome = Client()
+    edge = Client()
+    sign_in(chrome)
+    sign_in(edge)
+
+    session = chrome.session
+    session["cart"] = {str(chiffon_saree.pk): 2}
+    session.save()
+    session = edge.session
+    session["cart"] = {str(silk_saree.pk): 1}
+    session.save()
+
+    chrome_cart = chrome.get(reverse("store:cart"))
+    edge_cart = edge.get(reverse("store:cart"))
+
+    assert [item["saree"].pk for item in chrome_cart.context["cart_items"]] == [chiffon_saree.pk]
+    assert [item["saree"].pk for item in edge_cart.context["cart_items"]] == [chiffon_saree.pk]
+    assert chrome_cart.context["cart_count"] == edge_cart.context["cart_count"] == 2
+    assert "cart" not in chrome.session
+    assert "cart" not in edge.session
+
+
+def test_cart_models_are_persisted_per_customer(shopper, site_settings, chiffon_saree):
+    browser = Client()
+    sign_in(browser)
+    browser.post(reverse("store:add_to_cart"), {"saree_id": chiffon_saree.pk, "quantity": 2})
+
+    cart = ShoppingCart.objects.get(customer=shopper)
+    assert CartItem.objects.get(cart=cart, saree=chiffon_saree).quantity == 2
