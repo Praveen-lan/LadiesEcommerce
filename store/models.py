@@ -443,10 +443,11 @@ class Saree(models.Model):
             self.price = breakdown["final"]
         if not self.slug:
             from django.utils.text import slugify
-            base = slugify(self.name)
+
+            base = slugify(self.name) or "saree"
             slug = base
             counter = 2
-            while Saree.objects.filter(slug=slug).exists():
+            while Saree.objects.filter(slug=slug).exclude(pk=self.pk).exists():
                 slug = f"{base}-{counter}"
                 counter += 1
             self.slug = slug

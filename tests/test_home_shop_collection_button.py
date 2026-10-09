@@ -142,3 +142,36 @@ def test_catalog_collection_filter_opens_only_the_selected_collection(client, db
     assert "Premium Silk Saree" in content
     assert "Luxury Silk Saree" not in content
     assert 'class="filter-bar"' not in content
+
+
+def test_collection_pages_handle_legacy_sarees_without_slugs(client, category):
+    customer = Customer.objects.create(name="Legacy Shopper", phone="9876500000")
+    session = client.session
+    session["customer_id"] = customer.pk
+    session.save()
+
+    saree = Saree.objects.create(
+        category=category,
+        name="Legacy Saree",
+        price="1999.00",
+        image_url="https://images.example/legacy.jpg",
+    )
+    Saree.objects.filter(pk=saree.pk).update(slug="")
+
+    for url in (reverse("store:catalog"), reverse("store:category_detail", args=[category.slug])):
+        response = client.get(url)
+
+        assert response.status_code == 200
+        assert b"Legacy Saree" in response.content
+        assert f'href="{reverse("store:catalog")}"'.encode() in response.content
+
+
+def test_sarees_with_unusable_names_get_valid_slugs(category):
+    saree = Saree.objects.create(
+        category=category,
+        name="@@@@@@@",
+        price="1999.00",
+        image_url="https://images.example/legacy.jpg",
+    )
+
+    assert saree.slug

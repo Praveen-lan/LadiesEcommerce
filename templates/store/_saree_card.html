@@ -1,5 +1,5 @@
 <div class="saree-card">
-    <a href="{% url 'store:saree_detail' saree.slug %}" class="saree-img-wrap">
+    <a href="{% if saree.slug %}{% url 'store:saree_detail' saree.slug %}{% else %}{% url 'store:catalog' %}{% endif %}" class="saree-img-wrap">
         <img src="{{ saree.image_source }}" alt="{{ saree.name }}" loading="lazy">
         {% if saree.product_id %}<span class="saree-product-id">Product ID: {{ saree.product_id }}</span>{% endif %}
         <div class="card-actions">
@@ -8,7 +8,7 @@
         </div>
     </a>
     <div class="saree-body">
-        <a href="{% url 'store:saree_detail' saree.slug %}" class="saree-name-link"><h3 class="saree-name">{{ saree.name }}</h3></a>
+        <a href="{% if saree.slug %}{% url 'store:saree_detail' saree.slug %}{% else %}{% url 'store:catalog' %}{% endif %}" class="saree-name-link"><h3 class="saree-name">{{ saree.name }}</h3></a>
         <div class="saree-price">
             <strong>&#8377; {{ saree.final_amount }}</strong>
             {% if saree.discount_amount %}<del>&#8377; {{ saree.original_amount }}</del>{% endif %}
