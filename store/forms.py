@@ -7,9 +7,9 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 
-from .models import ContactMessage, Saree, SiteSettings, SubCategory
+from .models import ContactMessage, Product, Saree, SiteSettings, SubCategory
 from .maps import extract_map_source
-from .validators import validate_payment_image_extension
+from .validators import IMAGE_UPLOAD_ERROR, validate_payment_image_extension
 
 PHONE_RE = re.compile(r"[0-9]{10}")
 MOBILE_RE = re.compile(r"[6-9][0-9]{9}")
@@ -91,6 +91,19 @@ class ProductIdMixin:
 
 
 class SareeAdminForm(ProductIdMixin, forms.ModelForm):
+    slug = forms.CharField(
+        label="Slug",
+        required=False,
+        max_length=200,
+        error_messages={"required": "Please enter a slug."},
+        help_text="Required for new sarees. Enter letters and numbers only; no spaces or special characters.",
+        widget=forms.TextInput(
+            attrs={
+                "pattern": "[A-Za-z0-9]+",
+                "title": "Enter letters and numbers only, with no spaces or special characters.",
+            }
+        ),
+    )
     subcategory = SubCategoryChoiceField(
         queryset=SubCategory.objects.select_related("category").order_by("category__title", "order", "id"),
         required=False,
@@ -101,6 +114,65 @@ class SareeAdminForm(ProductIdMixin, forms.ModelForm):
     class Meta:
         model = Saree
         fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["slug"].required = not bool(self.instance.pk)
+
+    def clean_slug(self):
+        slug = self.cleaned_data.get("slug", "")
+        if not slug:
+            if self.instance.pk:
+                return slug
+            raise ValidationError("Please enter a slug.", code="required")
+        if self.instance.pk and slug == self.instance.slug:
+            return slug
+        if not re.fullmatch(r"[A-Za-z0-9]+", slug):
+            raise ValidationError(
+                "Enter letters and numbers only, with no spaces or special characters.",
+                code="invalid",
+            )
+        return slug
+
+
+class ProductAdminForm(forms.ModelForm):
+    slug = forms.CharField(
+        label="Slug",
+        max_length=200,
+        help_text="Enter letters and numbers only; no spaces or special characters.",
+        widget=forms.TextInput(
+            attrs={
+                "pattern": "[A-Za-z0-9]+",
+                "title": "Enter letters and numbers only, with no spaces or special characters.",
+            }
+        ),
+    )
+
+    class Meta:
+        model = Product
+        fields = (
+            "product_type",
+            "name",
+            "slug",
+            "description",
+            "price",
+            "mrp",
+            "discount_percent",
+            "delivery_charge",
+            "gst_percent",
+            "image",
+            "in_stock",
+            "is_featured",
+        )
+
+    def clean_slug(self):
+        slug = self.cleaned_data["slug"]
+        if not re.fullmatch(r"[A-Za-z0-9]+", slug):
+            raise ValidationError(
+                "Enter letters and numbers only, with no spaces or special characters.",
+                code="invalid",
+            )
+        return slug
 
 
 class PaymentProofForm(forms.Form):
@@ -314,4 +386,3 @@ class SiteSettingsForm(forms.ModelForm):
         except ValidationError as error:
             raise ValidationError(error.messages, code="invalid") from error
         return value
-

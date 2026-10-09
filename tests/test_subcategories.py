@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
 from store.models import DEFAULT_SUBCATEGORIES, Category, Saree, SubCategory, guess_subcategory
@@ -439,6 +440,35 @@ def test_sitemap_lists_every_subcategory(client, silk_category, silk_subcategory
 
 
 @pytest.mark.django_db
+def test_category_add_page_omits_subcategory_and_saree_inlines(client, staff):
+    client.force_login(staff)
+
+    response = client.get(reverse("admin:store_category_add"))
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert response.context["inline_admin_formsets"] == []
+    assert 'name="subcategories-TOTAL_FORMS"' not in content
+    assert 'name="sarees-TOTAL_FORMS"' not in content
+    assert 'name="tier" value="basic"' in content
+    assert "Tier:" not in content
+    assert "Tier" not in client.get(reverse("admin:store_category_changelist")).content.decode()
+
+
+@pytest.mark.django_db
+def test_category_admin_assigns_hidden_tier_when_creating_category(client, staff):
+    client.force_login(staff)
+
+    response = client.post(
+        reverse("admin:store_category_add"),
+        {"title": "New Collection", "slug": "new-collection", "order": "0", "_save": "Save"},
+    )
+
+    assert response.status_code == 302
+    assert Category.objects.get(title="New Collection").tier == Category.Tier.BASIC
+
+
+@pytest.mark.django_db
 def test_admin_renders_a_subcategory_inline_on_the_category_page(client, staff, silk_category):
     client.force_login(staff)
 
@@ -535,6 +565,62 @@ def test_saree_admin_ships_the_filter_script_and_the_fields_it_binds_to(client, 
 
 
 @pytest.mark.django_db
+def test_saree_admin_slug_is_required_and_limited_to_letters_and_numbers(client, staff):
+    client.force_login(staff)
+
+    response = client.get(reverse("admin:store_saree_add"))
+    content = response.content.decode()
+    assert 'id="id_slug"' in content
+    assert "<strong>Slug</strong>" in content
+    assert response.context["adminform"].form.fields["slug"].required
+    assert 'name="slug"' in content and "letters and numbers only" in content
+
+    from store.forms import SareeAdminForm
+
+    missing_slug = SareeAdminForm(data={"slug": ""})
+    missing_slug.full_clean()
+    assert "Please enter a slug." in missing_slug.errors["slug"][0]
+
+    invalid_slug = SareeAdminForm(data={"slug": "kanjivaram-silk"})
+    invalid_slug.full_clean()
+    assert "no spaces or special characters" in invalid_slug.errors["slug"][0]
+
+    valid_slug = SareeAdminForm(data={"slug": "Kanjivaram123"})
+    valid_slug.full_clean()
+    assert "slug" not in valid_slug.errors
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "filename,content",
+    [
+        ("products.csv", b"name,price\nsaree,1200"),
+        ("spreadsheet.png", b"PK\x03\x04fake xlsx content"),
+    ],
+)
+def test_admin_image_fields_reject_spreadsheets_and_csv(client, staff, filename, content):
+    client.force_login(staff)
+
+    response = client.post(
+        reverse("admin:store_banner_add"),
+        {
+            "title": "Invalid upload",
+            "subtitle": "",
+            "link": "",
+            "is_active": "on",
+            "order": "0",
+            "image": SimpleUploadedFile(filename, content, content_type="application/octet-stream"),
+            "_save": "Save",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "Please upload an image in JPG, JPEG, PNG, or WebP format." in (
+        response.context["adminform"].form.errors["image"][0]
+    )
+
+
+@pytest.mark.django_db
 def test_saree_admin_rejects_a_subcategory_from_another_collection(
     client, staff, silk_category, cotton_subcategory
 ):
@@ -547,6 +633,8 @@ def test_saree_admin_rejects_a_subcategory_from_another_collection(
             "category": other.pk,
             "subcategory": cotton_subcategory.pk,
             "name": "Mismatched Saree",
+            "product_id": "MS-1001",
+            "slug": "Mismatched1001",
             "price": "1499",
             "mrp": "",
             "fabric": "Cotton",
@@ -573,6 +661,7 @@ def test_saree_admin_saves_a_matching_subcategory(client, staff, silk_category, 
             "subcategory": silk_subcategory.pk,
             "name": "Kanjivaram Antique Gold",
             "product_id": "KA-1001",
+            "slug": "KanjivaramAntiqueGold1001",
             "price": "8999",
             "mrp": "",
             "fabric": "Silk",

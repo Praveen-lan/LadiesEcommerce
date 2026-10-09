@@ -1,7 +1,7 @@
 from django.contrib.sitemaps import Sitemap
 from django.urls import reverse
 
-from .models import Category, Saree, SubCategory
+from .models import Category, Product, Saree, SubCategory
 
 
 class StoreSitemap(Sitemap):
@@ -12,12 +12,14 @@ class StoreSitemap(Sitemap):
         return [
             "home",
             "catalog",
+            "all_products",
             "about",
             "contact",
             "terms",
             *Category.objects.all(),
             *SubCategory.objects.select_related("category").all(),
             *Saree.objects.all(),
+            *Product.objects.filter(product_type__is_active=True),
         ]
 
     def location(self, item):
@@ -35,6 +37,6 @@ class StoreSitemap(Sitemap):
         return 0.7
 
     def lastmod(self, item):
-        if isinstance(item, Saree):
+        if isinstance(item, (Saree, Product)):
             return item.created_at
         return None

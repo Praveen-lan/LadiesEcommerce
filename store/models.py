@@ -14,7 +14,7 @@ from .pricing import (
     price_breakdown,
     to_amount,
 )
-from .validators import validate_payment_image_extension
+from .validators import validate_image_extension, validate_payment_image_extension
 
 # Fallbacks for the two saree card details, used when a saree leaves the field
 # empty so every saree still shows the full set of details.
@@ -427,6 +427,14 @@ class Saree(models.Model):
             return self.image.url
         return self.image_url
 
+    @property
+    def product_type_name(self):
+        return "Sarees"
+
+    @property
+    def is_saree(self):
+        return True
+
     def get_absolute_url(self):
         return reverse("store:saree_detail", kwargs={"slug": self.slug})
 
@@ -501,6 +509,128 @@ class Saree(models.Model):
         return self.dispatch_note or DEFAULT_DISPATCH_NOTE
 
 
+class ProductType(models.Model):
+    name = models.CharField(max_length=120, unique=True)
+    slug = models.SlugField(max_length=140, unique=True)
+    description = models.CharField(max_length=250, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ("order", "name")
+        verbose_name = "Product Category"
+        verbose_name_plural = "Product Categories"
+
+    def __str__(self):
+        return self.name
+
+
+class Product(models.Model):
+    product_type = models.ForeignKey(ProductType, on_delete=models.PROTECT, related_name="products")
+    name = models.CharField(max_length=150)
+    slug = models.SlugField(max_length=200, unique=True)
+    description = models.TextField(blank=True)
+    price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0.00"))])
+    mrp = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        default=None,
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+    )
+    delivery_charge = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    gst_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("5.00"),
+        validators=[MinValueValidator(Decimal("1.00")), MaxValueValidator(Decimal("100.00"))],
+    )
+    image = models.ImageField(upload_to="products/", validators=[validate_image_extension])
+    in_stock = models.BooleanField(default=True)
+    is_featured = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def image_source(self):
+        return self.image.url if self.image else ""
+
+    @property
+    def product_type_name(self):
+        return self.product_type.name
+
+    @property
+    def is_saree(self):
+        return False
+
+    def get_absolute_url(self):
+        return reverse("store:product_detail", kwargs={"slug": self.slug})
+
+    def clean(self):
+        super().clean()
+        if not is_valid_discount_percent(self.discount_percent):
+            raise ValidationError({"discount_percent": "Enter a discount between 0 and 100 percent."})
+        if not is_valid_gst_percent(self.gst_percent):
+            raise ValidationError({"gst_percent": "Enter a GST percentage between 1 and 100."})
+        if (
+            self.discount_percent is None
+            and self.mrp is not None
+            and self.price is not None
+            and Decimal(str(self.mrp)) < Decimal(str(self.price))
+        ):
+            raise ValidationError({"mrp": "Original amount cannot be lower than the price."})
+
+    def save(self, *args, **kwargs):
+        if not is_valid_discount_percent(self.discount_percent):
+            raise ValidationError({"discount_percent": "Enter a discount between 0 and 100 percent."})
+        if not is_valid_gst_percent(self.gst_percent):
+            raise ValidationError({"gst_percent": "Enter a GST percentage between 1 and 100."})
+        if self.discount_percent is not None:
+            breakdown = self.calculate_price_breakdown()
+            self.mrp = breakdown["original"]
+            self.price = breakdown["final"]
+        super().save(*args, **kwargs)
+
+    def calculate_price_breakdown(self):
+        if not is_valid_discount_percent(self.discount_percent):
+            raise ValidationError({"discount_percent": "Enter a discount between 0 and 100 percent."})
+        return price_breakdown(self.mrp, self.price, self.discount_percent)
+
+    @property
+    def original_amount(self):
+        return self.calculate_price_breakdown()["original"]
+
+    @property
+    def final_amount(self):
+        return self.calculate_price_breakdown()["final"]
+
+    @property
+    def discount_amount(self):
+        return self.calculate_price_breakdown()["discount"]
+
+    @property
+    def effective_discount_percent(self):
+        return self.calculate_price_breakdown()["percent"]
+
+
 class Customer(models.Model):
     name = models.CharField(max_length=150)
     phone = models.CharField(max_length=30, unique=True)
@@ -534,17 +664,42 @@ class CartItem(models.Model):
         on_delete=models.CASCADE,
         related_name="items",
     )
-    saree = models.ForeignKey(Saree, on_delete=models.CASCADE, related_name="cart_items")
+    saree = models.ForeignKey(
+        Saree,
+        on_delete=models.CASCADE,
+        related_name="cart_items",
+        blank=True,
+        null=True,
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="cart_items",
+        blank=True,
+        null=True,
+    )
     quantity = models.PositiveIntegerField(default=1)
 
     class Meta:
         ordering = ["id"]
         constraints = [
             models.UniqueConstraint(fields=("cart", "saree"), name="unique_saree_per_shopping_cart"),
+            models.UniqueConstraint(
+                fields=("cart", "product"),
+                condition=models.Q(product__isnull=False),
+                name="unique_product_per_shopping_cart",
+            ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(saree__isnull=False, product__isnull=True)
+                    | models.Q(saree__isnull=True, product__isnull=False)
+                ),
+                name="cart_item_has_one_product",
+            ),
         ]
 
     def __str__(self):
-        return f"{self.saree} x {self.quantity}"
+        return f"{self.product or self.saree} x {self.quantity}"
 
 
 class OTPRequest(models.Model):
@@ -651,6 +806,7 @@ class Order(models.Model):
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
     saree = models.ForeignKey(Saree, on_delete=models.SET_NULL, null=True)
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True)
     name = models.CharField(max_length=150)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField(default=1)

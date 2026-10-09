@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ seo_title }}{% endblock %}
+
+{% block content %}
+<section class="detail-wrap">
+    <div class="container">
+        <div class="row g-5">
+            <div class="col-lg-6">
+                <div class="detail-image">
+                    <img src="{{ product.image_source }}" alt="{{ product.name }}">
+                </div>
+            </div>
+            <div class="col-lg-6">
+                <div class="detail-info">
+                    <a class="detail-cat" href="{% url 'store:all_products' %}?category=product:{{ product.product_type.slug }}">{{ product.product_type.name }}</a>
+                    <h1 class="detail-title">{{ product.name }}</h1>
+                    <div class="detail-price">
+                        <span class="price-now">&#8377; {{ product.final_amount }}</span>
+                        {% if product.discount_amount %}<span class="price-mrp">&#8377; {{ product.original_amount }}</span>{% endif %}
+                        {% if product.discount_amount %}
+                        <span class="price-off">{{ product.effective_discount_percent }}% off &mdash; you save &#8377; {{ product.discount_amount }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="detail-meta">
+                        <div class="meta-row"><span>Category</span><strong>{{ product.product_type.name }}</strong></div>
+                        <div class="meta-row"><span>Availability</span><strong>{% if product.in_stock %}In stock{% else %}Out of stock{% endif %}</strong></div>
+                    </div>
+                    {% if product.description %}
+                    <div class="detail-desc">
+                        <h5>About this product</h5>
+                        <p>{{ product.description }}</p>
+                    </div>
+                    {% endif %}
+                    <form action="{% url 'store:add_to_cart' %}" method="post" class="mt-3">
+                        {% csrf_token %}
+                        <input type="hidden" name="item_type" value="product">
+                        <input type="hidden" name="item_id" value="{{ product.id }}">
+                        <input type="hidden" name="redirect" value="{{ request.get_full_path }}">
+                        <div class="d-flex align-items-center gap-3 flex-wrap">
+                            <div class="qty-control qty-lg">
+                                <button class="qty-btn" type="button" onclick="qty('minus')">-</button>
+                                <input class="qty-val qty-input" id="qty-in" name="quantity" value="1" min="1" readonly>
+                                <button class="qty-btn" type="button" onclick="qty('plus')">+</button>
+                            </div>
+                            <button type="submit" class="btn btn-gold btn-lg flex-grow-1 rounded-pill"{% if not product.in_stock %} disabled{% endif %}>
+                                <i class="bi bi-bag-plus"></i> {% if product.in_stock %}Add to Cart{% else %}Out of Stock{% endif %}
+                            </button>
+                        </div>
+                    </form>
+                    <div class="detail-assure">
+                        <span><i class="bi bi-arrow-repeat"></i> 7-day easy returns</span>
+                        <span><i class="bi bi-shield-check"></i> Quality checked</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% if related %}
+        <section class="related-section">
+            <div class="section-head">
+                <div>
+                    <span class="section-tag">More from {{ product.product_type.name }}</span>
+                    <h2 class="section-title">You may also like</h2>
+                </div>
+                <a href="{% url 'store:all_products' %}?category=product:{{ product.product_type.slug }}" class="btn btn-outline-gold btn-sm rounded-pill">View All <i class="bi bi-arrow-right"></i></a>
+            </div>
+            <div class="row g-4">
+                {% for item in related %}
+                <div class="col-6 col-md-4 col-lg-3">
+                    {% include 'store/_product_card.html' with item=item %}
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function qty(dir) {
+        const input = document.getElementById('qty-in');
+        let value = parseInt(input.value) || 1;
+        value = dir === 'plus' ? value + 1 : Math.max(1, value - 1);
+        input.value = value;
+    }
+</script>
+{% endblock %}

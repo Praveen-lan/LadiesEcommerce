@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ seo_title }}{% endblock %}
+
+{% block content %}
+<section class="page-banner image-page-banner catalog-page-banner"{% if catalog_banner_image %} style="background-image:url('{{ catalog_banner_image }}');"{% endif %}>
+    <div class="image-page-overlay"></div>
+    <div class="container text-center py-5 position-relative">
+        <span class="section-tag">{% if query %}Search Results{% else %}Shop Everything{% endif %}</span>
+        <h1 class="page-title">{% if query %}Products for "{{ query }}"{% else %}All Products{% endif %}</h1>
+        <p class="page-sub">Discover sarees, jewellery, handbags, and more.</p>
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb justify-content-center">
+                <li class="breadcrumb-item"><a href="{% url 'store:home' %}">Home</a></li>
+                <li class="breadcrumb-item active" aria-current="page">All Products</li>
+            </ol>
+        </nav>
+    </div>
+</section>
+
+<section class="catalog-section">
+    <div class="container">
+        <form action="{% url 'store:all_products' %}" method="get" class="search-results-bar mb-4">
+            <input class="form-control" type="search" name="q" value="{{ query }}" placeholder="Search all products..." aria-label="Search all products">
+            <select class="form-select" name="category" aria-label="Filter by product category">
+                <option value="">All product types and categories</option>
+                {% for option in product_filters %}
+                <option value="{{ option.value }}"{% if selected_product_filter == option.value %} selected{% endif %}>{{ option.label }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-gold" type="submit"><i class="bi bi-search"></i> Browse</button>
+        </form>
+
+        {% if all_items %}
+        <div class="row g-4">
+            {% for item in all_items %}
+            <div class="col-6 col-md-4 col-lg-3">
+                {% include 'store/_product_card.html' with item=item %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty-state text-center py-5">
+            <i class="bi bi-search display-1"></i>
+            <h4>{% if query %}No products found for "{{ query }}"{% else %}No products found{% endif %}</h4>
+            <p>Try a different search or product category.</p>
+            <a href="{% url 'store:all_products' %}" class="btn btn-gold rounded-pill px-4 mt-2">View All Products</a>
+        </div>
+        {% endif %}
+    </div>
+</section>
+{% endblock %}

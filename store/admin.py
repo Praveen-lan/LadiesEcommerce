@@ -11,7 +11,8 @@ from django.utils.html import format_html
 from django.utils.http import unquote
 from django import forms
 
-from .forms import ProductIdMixin, SareeAdminForm, SiteSettingsForm
+from .forms import ProductAdminForm, ProductIdMixin, SareeAdminForm, SiteSettingsForm
+from .validators import IMAGE_UPLOAD_ERROR, validate_image_extension
 from .models import (
     AboutPage,
     Banner,
@@ -24,6 +25,8 @@ from .models import (
     LoginPage,
     PaymentProof,
     PaymentQR,
+    Product,
+    ProductType,
     Saree,
     SEO,
     SiteSettings,
@@ -34,6 +37,11 @@ from .models import (
 
 class CategoryAdminForm(forms.ModelForm):
     slug = forms.SlugField(required=False)
+    tier = forms.ChoiceField(
+        choices=Category.Tier.choices,
+        required=False,
+        widget=forms.HiddenInput,
+    )
 
     class Meta:
         model = Category
@@ -47,6 +55,13 @@ class CategoryAdminForm(forms.ModelForm):
             slug = f"{base}-{suffix}"
             suffix += 1
         return slug
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["tier"].initial = self.instance.tier if self.instance.pk else Category.Tier.BASIC
+
+    def clean_tier(self):
+        return self.instance.tier if self.instance.pk else Category.Tier.BASIC
 
 
 class SubCategoryAdminForm(forms.ModelForm):
@@ -90,12 +105,20 @@ def blank_text_initial(form):
     """
     for field in form.fields.values():
         field.label = format_html("<strong>{}</strong>", field.label)
+        if isinstance(field, forms.ImageField):
+            if validate_image_extension not in field.validators:
+                field.validators.append(validate_image_extension)
+            field.error_messages["invalid_image"] = IMAGE_UPLOAD_ERROR
+            field.help_text = "Upload a JPG, JPEG, PNG, or WebP image. CSV and Excel files are not accepted."
 
     if form.instance.pk is not None:
         return
     for name, field in form.fields.items():
         model_field = form._meta.model._meta.get_field(name)
-        if not isinstance(field.widget, (forms.CheckboxInput, forms.RadioSelect, forms.Select)):
+        if not isinstance(
+            field.widget,
+            (forms.CheckboxInput, forms.RadioSelect, forms.Select, forms.HiddenInput),
+        ):
             if isinstance(model_field, (models.CharField, models.TextField)):
                 field.initial = ""
                 field.widget.attrs.setdefault("placeholder", "")
@@ -498,12 +521,17 @@ class SareeInline(BlankTextOnAddMixin, admin.TabularInline):
 @admin.register(Category)
 class CategoryAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     form = CategoryAdminForm
-    list_display = ("title", "tier", "order", "saree_count", "subcategory_count")
-    list_filter = ("tier",)
+    list_display = ("title", "order", "saree_count", "subcategory_count")
+    list_filter = ()
     search_fields = ("title", "subtitle")
     prepopulated_fields = {"slug": ("title",)}
     inlines = [SubCategoryInline, SareeInline]
     delete_confirmation_template = "admin/store/category/delete_confirmation.html"
+
+    def get_inline_instances(self, request, obj=None):
+        if obj is None:
+            return []
+        return super().get_inline_instances(request, obj)
 
     class Media:
         js = (SELECTED_INLINE_DELETE_JS,)
@@ -670,6 +698,27 @@ class SareeAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
 
     class Media:
         js = (SUBCATEGORY_FILTER_JS,)
+
+
+@admin.register(ProductType)
+class ProductTypeAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
+    list_display = ("name", "slug", "order", "is_active", "product_count")
+    list_editable = ("order", "is_active")
+    search_fields = ("name", "description")
+    prepopulated_fields = {"slug": ("name",)}
+
+    @admin.display(description="Products")
+    def product_count(self, obj):
+        return obj.products.count()
+
+
+@admin.register(Product)
+class ProductAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
+    form = ProductAdminForm
+    list_display = ("name", "product_type", "price", "in_stock", "is_featured", "created_at")
+    list_filter = ("product_type", "in_stock", "is_featured")
+    search_fields = ("name", "description", "product_type__name")
+    autocomplete_fields = ("product_type",)
 
 
 @admin.register(PaymentQR)

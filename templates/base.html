@@ -72,16 +72,39 @@
                                 </span>
                                 {% endif %}
                             </li>
+                            {% endfor %}
+                            {% for product_type in navigation_product_types %}
+                            <li class="collections-category">
+                                {% if product_type.products.all %}
+                                <button class="dropdown-item collections-category-link" type="button" aria-expanded="false" aria-controls="product-submenu-{{ product_type.slug }}">
+                                    <span class="collections-category-title">{{ product_type.name }}</span>
+                                    <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                                </button>
+                                <ul class="collection-submenu" id="product-submenu-{{ product_type.slug }}">
+                                    {% for product in product_type.products.all %}
+                                    <li>
+                                        <a class="dropdown-item collections-child" href="{{ product.get_absolute_url }}"><span class="collections-child-title">{{ product.name }}</span></a>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                                {% else %}
+                                <span class="dropdown-item collections-category-link collections-category-label">
+                                    <span class="collections-category-title">{{ product_type.name }}</span>
+                                </span>
+                                {% endif %}
+                            </li>
                             {% empty %}
+                            {% if not navigation_categories %}
                             <li><span class="collections-empty">Collections will appear here soon.</span></li>
+                            {% endif %}
                             {% endfor %}
                         </ul>
                     </li>
                     <li class="nav-item"><a class="nav-link {% if request.resolver_match.url_name == 'contact' or request.resolver_match.url_name == 'contact_us' %}active{% endif %}" href="{% url 'store:contact' %}"><i class="bi bi-telephone"></i> Contact Us</a></li>
                 </ul>
                 <div class="d-flex align-items-center gap-2">
-                    <form action="{% url 'store:catalog' %}" method="get" class="nav-search" role="search">
-                        <input class="nav-search-input" type="search" name="q" placeholder="Search...." value="{{ query|default:'' }}" aria-label="Search sarees">
+                    <form action="{% url 'store:all_products' %}" method="get" class="nav-search" role="search">
+                        <input class="nav-search-input" type="search" name="q" placeholder="Search...." value="{{ query|default:'' }}" aria-label="Search all products">
                         <button class="nav-search-btn" type="submit" aria-label="Search"><i class="bi bi-search"></i></button>
                     </form>
                     <a href="{% url 'store:cart' %}" class="cart-link" title="View cart">

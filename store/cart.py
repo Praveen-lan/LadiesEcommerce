@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import F
 
-from .models import CartItem, Customer, Saree, ShoppingCart, SiteSettings
+from .models import CartItem, Customer, Product, Saree, ShoppingCart, SiteSettings
 from .pricing import (
     FREE_SHIPPING_ABOVE,
     GST_RATE,
@@ -73,54 +73,74 @@ class Cart:
         if not isinstance(session_cart, dict) or not session_cart:
             return
 
-        quantities = {}
+        quantities = {"saree": {}, "product": {}}
         for key, quantity in session_cart.items():
             try:
-                saree_id = int(key)
+                if isinstance(key, str) and ":" in key:
+                    kind, item_id = key.split(":", 1)
+                else:
+                    kind, item_id = "saree", key
+                item_id = int(item_id)
                 quantity = int(quantity)
             except (TypeError, ValueError):
                 continue
-            if quantity > 0:
-                quantities[saree_id] = quantity
+            if kind in quantities and quantity > 0:
+                quantities[kind][item_id] = quantity
 
-        existing_saree_ids = set(
-            Saree.objects.filter(pk__in=quantities).values_list("pk", flat=True)
-        )
+        existing_ids = {
+            "saree": set(Saree.objects.filter(pk__in=quantities["saree"]).values_list("pk", flat=True)),
+            "product": set(Product.objects.filter(pk__in=quantities["product"]).values_list("pk", flat=True)),
+        }
         CartItem.objects.bulk_create(
             [
-                CartItem(cart=self.account_cart, saree_id=saree_id, quantity=quantity)
-                for saree_id, quantity in quantities.items()
-                if saree_id in existing_saree_ids
+                CartItem(
+                    cart=self.account_cart,
+                    saree_id=item_id if kind == "saree" else None,
+                    product_id=item_id if kind == "product" else None,
+                    quantity=quantity,
+                )
+                for kind, items in quantities.items()
+                for item_id, quantity in items.items()
+                if item_id in existing_ids[kind]
             ]
         )
 
-    def _account_item(self, saree_id):
-        return self.account_cart.items.filter(saree_id=saree_id).first()
+    def _account_item(self, item_id, kind="saree"):
+        return self.account_cart.items.filter(**{f"{kind}_id": item_id}).first()
 
     def add(self, saree_id, quantity=1):
+        self.add_item("saree", saree_id, quantity)
+
+    def add_item(self, kind, item_id, quantity=1):
         qty = int(quantity)
         if qty <= 0:
             return
+        model = Saree if kind == "saree" else Product if kind == "product" else None
+        if model is None:
+            raise ValueError("Cart item type must be 'saree' or 'product'.")
         if self.account_cart is not None:
-            if not Saree.objects.filter(pk=saree_id).exists():
+            if not model.objects.filter(pk=item_id).exists():
                 return
             item, created = CartItem.objects.get_or_create(
                 cart=self.account_cart,
-                saree_id=saree_id,
+                **{f"{kind}_id": item_id},
                 defaults={"quantity": qty},
             )
             if not created:
                 CartItem.objects.filter(pk=item.pk).update(quantity=F("quantity") + qty)
             return
         cart = self._session_cart()
-        key = str(saree_id)
+        key = str(item_id) if kind == "saree" else f"product:{item_id}"
         cart[key] = cart.get(key, 0) + qty
         self._save_session_cart(cart)
 
     def set_quantity(self, saree_id, quantity):
+        self.set_item_quantity("saree", saree_id, quantity)
+
+    def set_item_quantity(self, kind, item_id, quantity):
         qty = int(quantity)
         if self.account_cart is not None:
-            item = self._account_item(saree_id)
+            item = self._account_item(item_id, kind)
             if item is None:
                 return
             if qty <= 0:
@@ -130,23 +150,35 @@ class Cart:
             item.save(update_fields=("quantity",))
             return
         cart = self._session_cart()
-        key = str(saree_id)
+        key = f"{kind}:{item_id}"
+        legacy_key = str(item_id) if kind == "saree" else None
+        if key not in cart and legacy_key in cart:
+            key = legacy_key
         if key not in cart:
             return
         if qty <= 0:
-            self.remove(saree_id)
+            self.remove_item(kind, item_id)
             return
         cart[key] = qty
         self._save_session_cart(cart)
 
     def remove(self, saree_id):
+        self.remove_item("saree", saree_id)
+
+    def remove_item(self, kind, item_id):
         if self.account_cart is not None:
-            self.account_cart.items.filter(saree_id=saree_id).delete()
+            self.account_cart.items.filter(**{f"{kind}_id": item_id}).delete()
             return
         cart = self._session_cart()
-        key = str(saree_id)
-        if key in cart:
-            del cart[key]
+        keys = [f"{kind}:{item_id}"]
+        if kind == "saree":
+            keys.append(str(item_id))
+        changed = False
+        for key in keys:
+            if key in cart:
+                del cart[key]
+                changed = True
+        if changed:
             self._save_session_cart(cart)
 
     def clear(self):
@@ -170,37 +202,54 @@ class Cart:
         """Return list of {saree, quantity, line_total} dicts."""
         if self.account_cart is not None:
             return [
-                self._item_details(item.saree, item.quantity)
-                for item in self.account_cart.items.select_related("saree")
+                self._item_details(item.product or item.saree, item.quantity, "product" if item.product_id else "saree")
+                for item in self.account_cart.items.select_related("saree", "product")
             ]
         cart = self._session_cart()
-        try:
-            ids = [int(key) for key in cart.keys()]
-        except (TypeError, ValueError):
-            ids = []
-        lookup = {s.pk: s for s in Saree.objects.filter(pk__in=ids)}
+        identifiers = {"saree": set(), "product": set()}
+        for key in cart:
+            try:
+                if isinstance(key, str) and ":" in key:
+                    kind, item_id = key.split(":", 1)
+                else:
+                    kind, item_id = "saree", key
+                if kind in identifiers:
+                    identifiers[kind].add(int(item_id))
+            except (TypeError, ValueError):
+                continue
+        lookup = {
+            "saree": {item.pk: item for item in Saree.objects.filter(pk__in=identifiers["saree"])},
+            "product": {item.pk: item for item in Product.objects.filter(pk__in=identifiers["product"])},
+        }
         result = []
         for key, qty in cart.items():
             try:
-                saree = lookup.get(int(key))
+                if isinstance(key, str) and ":" in key:
+                    kind, item_id = key.split(":", 1)
+                else:
+                    kind, item_id = "saree", key
+                item = lookup[kind].get(int(item_id))
                 qty = int(qty)
-            except (TypeError, ValueError):
+            except (KeyError, TypeError, ValueError):
                 continue
-            if saree is None or qty <= 0:
+            if item is None or qty <= 0:
                 continue
-            result.append(self._item_details(saree, qty))
+            result.append(self._item_details(item, qty, kind))
         return result
 
     @staticmethod
-    def _item_details(saree, quantity):
+    def _item_details(item, quantity, kind="saree"):
         return {
-            "saree": saree,
+            "saree": item if kind == "saree" else None,
+            "product": item,
+            "kind": kind,
+            "item_id": item.pk,
             "quantity": quantity,
-            "final_amount": saree.final_amount,
-            "line_total": saree.final_amount * quantity,
-            "delivery_charge": saree.delivery_charge * quantity,
-            "gst_percent": saree.gst_percent,
-            "gst_amount": gst_amount(saree.final_amount * quantity, saree.gst_percent),
+            "final_amount": item.final_amount,
+            "line_total": item.final_amount * quantity,
+            "delivery_charge": item.delivery_charge * quantity,
+            "gst_percent": item.gst_percent,
+            "gst_amount": gst_amount(item.final_amount * quantity, item.gst_percent),
         }
 
     def totals(self):

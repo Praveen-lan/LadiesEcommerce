@@ -117,7 +117,8 @@ class StorePageTests(TestCase):
         self.assertIn("catalog-page-banner", content)
         self.assertIn("Explore timeless weaves, graceful silk and everyday comfort", content)
         self.assertIn("category-banner-card", content)
-        self.assertEqual(content.count("category-banner-card"), 3)
+        for category in categories:
+            self.assertContains(response, category.title)
         self.assertIn("background-image:url('/media/sarees/banner-saree.jpg')", content)
 
     def test_about_page_uses_image_banner(self):
@@ -276,7 +277,7 @@ class StorePageTests(TestCase):
         content = response.content.decode()
         positions = [
             content.index(label)
-            for label in ("Home</a>", "About Us</a>", "Collection&amp;Services", "Contact Us</a>")
+            for label in ("Home</a>", "About Us</a>", "Collections &amp; Services", "Contact Us</a>")
         ]
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn(">All Catalog</a>", content)
@@ -1117,76 +1118,41 @@ class CategoryCreationAdminTests(TestCase):
         self.addCleanup(self.settings_override.disable)
         self.addCleanup(self.media_dir.cleanup)
 
-    def _post_category(self, title, tier, saree=None, slug=""):
-        add_page = self.client.get(self.add_url)
-        formset = inline_formset(add_page, "sarees")
-        prefix = formset.prefix
-        total_forms = 1 if saree else 0
+    def _post_category(self, title, slug=""):
         data = {
             "title": title,
-            "tier": tier,
             "slug": slug,
             "subtitle": "",
             "image": "",
             "order": "0",
             "_save": "Save",
-            **inline_management_data(add_page),
         }
-        data[f"{prefix}-TOTAL_FORMS"] = str(total_forms)
-        if saree:
-            data.update(
-                {
-                    f"{prefix}-0-name": saree["name"],
-                    f"{prefix}-0-product_id": saree.get("product_id", "NC-1001"),
-                    f"{prefix}-0-price": saree["price"],
-                    f"{prefix}-0-mrp": "",
-                    f"{prefix}-0-fabric": "Silk",
-                    f"{prefix}-0-description": "A new collection saree.",
-                    f"{prefix}-0-is_featured": "",
-                }
-            )
-            data[f"{prefix}-0-image"] = saree["image"]
         return self.client.post(self.add_url, data)
 
-    def test_category_can_reuse_an_existing_tier(self):
-        Category.objects.create(title="First High Collection", tier=Category.Tier.HIGH)
+    def test_new_category_defaults_to_basic_without_showing_tier(self):
+        add_page = self.client.get(self.add_url)
+        self.assertEqual(add_page.context["inline_admin_formsets"], [])
+        self.assertNotContains(add_page, "Tier:")
 
-        response = self._post_category("Second High Collection", Category.Tier.HIGH)
-
+        response = self._post_category("New Collection")
         self.assertRedirects(response, reverse("admin:store_category_changelist"))
-        self.assertEqual(Category.objects.filter(tier=Category.Tier.HIGH).count(), 2)
+        self.assertEqual(Category.objects.get(title="New Collection").tier, Category.Tier.BASIC)
 
     def test_category_with_duplicate_prepopulated_slug_gets_unique_slug(self):
         Category.objects.create(title="Kalankari", tier=Category.Tier.BASIC)
 
-        response = self._post_category("Kalankari", Category.Tier.BASIC, slug="kalankari")
+        response = self._post_category("Kalankari", slug="kalankari")
 
         self.assertRedirects(response, reverse("admin:store_category_changelist"))
         category = Category.objects.get(title="Kalankari", slug="kalankari-2")
         self.assertEqual(category.tier, Category.Tier.BASIC)
 
-    def test_new_category_inline_creates_saree_with_image_for_storefront(self):
-        image_buffer = BytesIO()
-        Image.new("RGB", (2, 2), color="red").save(image_buffer, format="PNG")
-        image = SimpleUploadedFile("new-collection.png", image_buffer.getvalue(), content_type="image/png")
-
-        response = self._post_category(
-            "New Silk Collection",
-            Category.Tier.HIGH,
-            {"name": "New Collection Saree", "product_id": "NC-1001", "price": "1499.00", "image": image},
-        )
-
-        self.assertRedirects(response, reverse("admin:store_category_changelist"))
-        category = Category.objects.get(title="New Silk Collection")
-        saree = category.sarees.get()
-        self.assertEqual(saree.name, "New Collection Saree")
-        self.assertEqual(saree.price, Decimal("1499.00"))
-        self.assertEqual(saree.image.name, "sarees/new-collection.png")
-
-        storefront = self.client.get(reverse("store:category_detail", kwargs={"slug": category.slug}))
-        self.assertEqual(storefront.status_code, 200)
-        self.assertContains(storefront, "New Collection Saree")
-        self.assertContains(storefront, "/media/sarees/new-collection.png")
+    def test_new_category_page_has_no_product_inlines(self):
+        add_page = self.client.get(self.add_url)
+        content = add_page.content.decode()
+        self.assertEqual(add_page.context["inline_admin_formsets"], [])
+        self.assertNotIn('name="sarees-TOTAL_FORMS"', content)
+        self.assertNotIn('name="subcategories-TOTAL_FORMS"', content)
 
     def test_existing_category_has_editable_fields_for_new_inline_saree(self):
         category = Category.objects.create(title="Existing Collection", tier=Category.Tier.HIGH)
@@ -1464,6 +1430,7 @@ class SareeProductIdTests(TestCase):
                 "subcategory": "",
                 "name": "Kanjivaram Gold Silk",
                 "product_id": "SD-SRK-1001",
+                "slug": "KanjivaramGoldSilk1",
                 "price": "8999.00",
                 "mrp": "",
                 "fabric": "Silk",
@@ -1482,6 +1449,7 @@ class SareeProductIdTests(TestCase):
                 "category": self.category.pk,
                 "subcategory": "",
                 "name": "Cotton Everyday Saree",
+                "slug": "CottonEverydaySaree1",
                 "product_id": "",
                 "price": "1499.00",
                 "mrp": "",
@@ -1527,9 +1495,9 @@ class SareeProductIdTests(TestCase):
             "image_url": "https://images.example/cotton.jpg",
         }
 
-        self.client.post(reverse("admin:store_saree_add"), {**base, "product_id": "SD01"})
-        self.client.post(reverse("admin:store_saree_add"), {**base, "product_id": "X" * 220})
-        self.client.post(reverse("admin:store_saree_add"), {**base, "product_id": "X" * 221})
+        self.client.post(reverse("admin:store_saree_add"), {**base, "product_id": "SD01", "slug": "CottonSaree1"})
+        self.client.post(reverse("admin:store_saree_add"), {**base, "product_id": "X" * 220, "slug": "CottonSaree2"})
+        self.client.post(reverse("admin:store_saree_add"), {**base, "product_id": "X" * 221, "slug": "CottonSaree3"})
 
         self.assertEqual(Saree.objects.count(), 2)
         self.assertEqual(Saree.objects.get(pk=1).product_id, "SD01")
@@ -1627,7 +1595,7 @@ class BlankAddFormTests(TestCase):
                 model_field = form._meta.model._meta.get_field(field_name)
                 if not isinstance(model_field, (models.CharField, models.TextField)):
                     continue
-                if isinstance(field.widget, (forms.CheckboxInput, forms.Select, forms.RadioSelect)):
+                if isinstance(field.widget, (forms.CheckboxInput, forms.Select, forms.RadioSelect, forms.HiddenInput)):
                     continue
                 checked += 1
                 with self.subTest(model=name, field=field_name):

@@ -1,0 +1,27 @@
+<div class="saree-card">
+    <a href="{{ item.get_absolute_url }}" class="saree-img-wrap">
+        <img src="{{ item.image_source }}" alt="{{ item.name }}" loading="lazy">
+        <div class="card-actions">
+            <span class="wishlist" title="Add to wishlist"><i class="bi bi-heart"></i></span>
+            <span class="quick-view" title="View details"><i class="bi bi-eye"></i></span>
+        </div>
+    </a>
+    <div class="saree-body">
+        <span class="section-tag">{{ item.product_type_name }}</span>
+        <a href="{{ item.get_absolute_url }}" class="saree-name-link"><h3 class="saree-name">{{ item.name }}</h3></a>
+        <div class="saree-price">
+            <strong>&#8377; {{ item.final_amount }}</strong>
+            {% if item.discount_amount %}<del>&#8377; {{ item.original_amount }}</del>{% endif %}
+        </div>
+        <form action="{% url 'store:add_to_cart' %}" method="post" class="saree-card-add-form">
+            {% csrf_token %}
+            <input type="hidden" name="item_type" value="{% if item.is_saree %}saree{% else %}product{% endif %}">
+            <input type="hidden" name="item_id" value="{{ item.id }}">
+            <input type="hidden" name="quantity" value="1">
+            <input type="hidden" name="redirect" value="{{ request.get_full_path }}">
+            <button type="submit" class="btn btn-buy w-100" {% if not item.in_stock %}disabled{% endif %}>
+                {% if item.in_stock %}<i class="bi bi-bag-plus"></i> Add to Cart{% else %}Out of Stock{% endif %}
+            </button>
+        </form>
+    </div>
+</div>

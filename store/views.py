@@ -48,6 +48,8 @@ from .models import (
     OrderItem,
     PaymentProof,
     PaymentQR,
+    Product,
+    ProductType,
     Saree,
     SEO,
     SiteSettings,
@@ -173,6 +175,9 @@ def _base_context(request=None):
                 "subcategories",
                 queryset=SubCategory.objects.filter(sarees__isnull=False).distinct(),
             )
+        ),
+        "navigation_product_types": ProductType.objects.filter(is_active=True).prefetch_related(
+            Prefetch("products", queryset=Product.objects.all())
         ),
         "cart_count": cart_count,
         "customer": customer,
@@ -781,6 +786,85 @@ def catalog(request):
     return render(request, "store/catalog.html", context)
 
 
+def all_products(request):
+    context = _base_context(request)
+    query = request.GET.get("q", "").strip()
+    selected = request.GET.get("category", "")
+    product_types = ProductType.objects.filter(is_active=True)
+    collections = Category.objects.all()
+    product_queryset = Product.objects.filter(product_type__is_active=True).select_related("product_type")
+    saree_queryset = Saree.objects.select_related("category")
+
+    filter_options = [
+        {"value": f"product:{product_type.slug}", "label": product_type.name}
+        for product_type in product_types
+    ]
+    filter_options.extend(
+        {"value": f"saree:{category.slug}", "label": f"Sarees - {category.title}"}
+        for category in collections
+    )
+
+    if selected.startswith("product:"):
+        product_queryset = product_queryset.filter(product_type__slug=selected.removeprefix("product:"))
+        saree_queryset = Saree.objects.none()
+    elif selected.startswith("saree:"):
+        saree_queryset = saree_queryset.filter(category__slug=selected.removeprefix("saree:"))
+        product_queryset = Product.objects.none()
+
+    if query:
+        product_queryset = product_queryset.filter(
+            Q(name__icontains=query)
+            | Q(description__icontains=query)
+            | Q(product_type__name__icontains=query)
+        )
+        saree_queryset = saree_queryset.filter(
+            Q(name__icontains=query)
+            | Q(fabric__icontains=query)
+            | Q(description__icontains=query)
+            | Q(category__title__icontains=query)
+        )
+
+    items = sorted(
+        [*product_queryset, *saree_queryset],
+        key=lambda item: item.created_at,
+        reverse=True,
+    )
+    banner = Banner.objects.filter(is_active=True).first()
+    banner_item = Product.objects.filter(product_type__is_active=True).first()
+    banner_saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
+    banner_image = (
+        banner.image.url
+        if banner and banner.image
+        else banner_item.image_source
+        if banner_item
+        else banner_saree.image_source
+        if banner_saree
+        else None
+    )
+    context.update(
+        {
+            "all_items": items,
+            "product_filters": filter_options,
+            "selected_product_filter": selected,
+            "query": query,
+            "catalog_banner_image": banner_image,
+        }
+    )
+    site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
+    context.update(
+        _seo_context(
+            request,
+            site=context["site"],
+            seo=context["seo"],
+            title=f"All Products | {site_name}",
+            description="Browse sarees, jewellery, handbags and every product category at Swathi Designers.",
+            keywords="all products, sarees, jewellery, handbags, online shopping",
+            image=banner_image,
+        )
+    )
+    return render(request, "store/all_products.html", context)
+
+
 def category_detail(request, slug):
     category = Category.objects.filter(slug=slug).first()
     if category is None:
@@ -879,14 +963,58 @@ def saree_detail(request, slug):
     return render(request, "store/saree_detail.html", context)
 
 
+def product_detail(request, slug):
+    product = get_object_or_404(Product.objects.select_related("product_type"), slug=slug)
+    related = Product.objects.filter(product_type=product.product_type).exclude(pk=product.pk)[:4]
+    context = _base_context(request)
+    context.update({"product": product, "related": related})
+    site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
+    description = product.description or f"Shop {product.name} from {product.product_type.name} at {site_name}."
+    product_schema = {
+        "@type": "Product",
+        "name": product.name,
+        "description": description,
+        "brand": {"@type": "Brand", "name": site_name},
+        "offers": {
+            "@type": "Offer",
+            "priceCurrency": "INR",
+            "price": str(product.final_amount),
+            "availability": (
+                "https://schema.org/InStock" if product.in_stock else "https://schema.org/OutOfStock"
+            ),
+            "url": _canonical_url(request, context["seo"]),
+        },
+    }
+    context.update(
+        _seo_context(
+            request,
+            site=context["site"],
+            seo=context["seo"],
+            title=f"{product.name} | {site_name}",
+            description=description,
+            keywords=f"{product.name}, {product.product_type.name}, online shopping",
+            image=product.image_source,
+            seo_type="product",
+            product=product_schema,
+        )
+    )
+    return render(request, "store/product_detail.html", context)
+
+
 def add_to_cart(request):
     if request.method == "POST":
-        saree_id = request.POST.get("saree_id")
+        item_type = request.POST.get("item_type", "saree")
+        item_id = request.POST.get("item_id") or request.POST.get("saree_id")
         quantity = request.POST.get("quantity", 1)
-        saree = get_object_or_404(Saree, pk=saree_id)
+        if item_type == "product":
+            item = get_object_or_404(Product, pk=item_id, product_type__is_active=True)
+        elif item_type == "saree":
+            item = get_object_or_404(Saree, pk=item_id)
+        else:
+            raise Http404("Unknown product type.")
         cart = Cart(request)
-        if not saree.in_stock:
-            message = f'"{saree.name}" is out of stock and cannot be added to your cart.'
+        if not item.in_stock:
+            message = f'"{item.name}" is out of stock and cannot be added to your cart.'
             if request.headers.get("x-requested-with") == "XMLHttpRequest":
                 return JsonResponse(
                     {"success": False, "message": message, "cart_count": cart.count()},
@@ -894,8 +1022,8 @@ def add_to_cart(request):
                 )
             messages.error(request, message)
         else:
-            cart.add(saree.id, quantity)
-            message = f'"{saree.name}" added to your cart.'
+            cart.add_item(item_type, item.pk, quantity)
+            message = f'"{item.name}" added to your cart.'
             if request.headers.get("x-requested-with") == "XMLHttpRequest":
                 return JsonResponse({"success": True, "message": message, "cart_count": cart.count()})
             messages.success(request, message)
@@ -930,6 +1058,23 @@ def update_cart(request, saree_id):
 def remove_from_cart(request, saree_id):
     cart = Cart(request)
     cart.remove(saree_id)
+    messages.info(request, "Item removed from cart.")
+    return redirect("store:cart")
+
+
+def update_cart_item(request, item_type, item_id):
+    if item_type not in {"saree", "product"}:
+        raise Http404("Unknown product type.")
+    if request.method == "POST":
+        Cart(request).set_item_quantity(item_type, item_id, request.POST.get("quantity", 1))
+        messages.info(request, "Cart updated.")
+    return redirect("store:cart")
+
+
+def remove_cart_item(request, item_type, item_id):
+    if item_type not in {"saree", "product"}:
+        raise Http404("Unknown product type.")
+    Cart(request).remove_item(item_type, item_id)
     messages.info(request, "Item removed from cart.")
     return redirect("store:cart")
 
@@ -1036,14 +1181,18 @@ def checkout(request):
         )
         order.save()
         for item in items:
+            product = item["product"] if item["kind"] == "product" else None
+            saree = item["saree"]
+            order_item = item["product"]
             OrderItem.objects.create(
                 order=order,
-                saree=item["saree"],
-                name=item["saree"].name,
-                price=item["saree"].final_amount,
+                saree=saree,
+                product=product,
+                name=order_item.name,
+                price=order_item.final_amount,
                 quantity=item["quantity"],
-                delivery_charge=item["saree"].delivery_charge,
-                gst_percent=item["saree"].gst_percent,
+                delivery_charge=order_item.delivery_charge,
+                gst_percent=order_item.gst_percent,
             )
         PaymentProof(
             order=order,
