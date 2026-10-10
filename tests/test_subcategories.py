@@ -13,7 +13,14 @@ from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
-from store.models import DEFAULT_SUBCATEGORIES, Category, Saree, SubCategory, guess_subcategory
+from store.models import (
+    DEFAULT_SUBCATEGORIES,
+    SLUG_VALIDATION_MESSAGE,
+    Category,
+    Saree,
+    SubCategory,
+    guess_subcategory,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -451,6 +458,10 @@ def test_category_add_page_omits_subcategory_and_saree_inlines(client, staff):
     assert 'name="subcategories-TOTAL_FORMS"' not in content
     assert 'name="sarees-TOTAL_FORMS"' not in content
     assert 'name="tier" value="basic"' in content
+    assert "<strong>Slug</strong>" in content
+    assert response.context["adminform"].form.fields["slug"].required
+    assert response.context["adminform"].form.fields["slug"].help_text == SLUG_VALIDATION_MESSAGE
+    assert SLUG_VALIDATION_MESSAGE in content
     assert "Tier:" not in content
     assert "Tier" not in client.get(reverse("admin:store_category_changelist")).content.decode()
 
@@ -461,7 +472,7 @@ def test_category_admin_assigns_hidden_tier_when_creating_category(client, staff
 
     response = client.post(
         reverse("admin:store_category_add"),
-        {"title": "New Collection", "slug": "new-collection", "order": "0", "_save": "Save"},
+        {"title": "New Collection", "slug": "NewCollection", "order": "0", "_save": "Save"},
     )
 
     assert response.status_code == 302
@@ -469,58 +480,76 @@ def test_category_admin_assigns_hidden_tier_when_creating_category(client, staff
 
 
 @pytest.mark.django_db
-def test_admin_renders_a_subcategory_inline_on_the_category_page(client, staff, silk_category):
+def test_category_admin_requires_alphanumeric_slug(client, staff):
+    from store.admin import CategoryAdminForm
+
+    form = CategoryAdminForm(data={"title": "New Collection", "slug": "", "order": "0"})
+    assert not form.is_valid()
+    assert "Please enter a slug." in form.errors["slug"][0]
+
+    form = CategoryAdminForm(data={"title": "New Collection", "slug": "New-Collection", "order": "0"})
+    assert not form.is_valid()
+    assert form.errors["slug"][0] == SLUG_VALIDATION_MESSAGE
+
+    form = CategoryAdminForm(data={"title": "New Collection", "slug": "NewCollection", "order": "0"})
+    assert form.is_valid(), form.errors
+
+
+@pytest.mark.django_db
+def test_category_change_page_hides_subcategory_and_product_sections(client, staff, silk_category):
     client.force_login(staff)
 
     response = client.get(reverse("admin:store_category_change", args=[silk_category.pk]))
     content = response.content.decode()
 
     assert response.status_code == 200
-    assert 'name="subcategories-TOTAL_FORMS"' in content
-    prefixes = [inline.formset.prefix for inline in response.context["inline_admin_formsets"]]
-    assert prefixes == ["subcategories", "sarees"]
+    assert response.context["inline_admin_formsets"] == []
+    assert 'name="subcategories-TOTAL_FORMS"' not in content
+    assert 'name="sarees-TOTAL_FORMS"' not in content
 
 
 @pytest.mark.django_db
-def test_staff_can_create_a_subcategory_inline_from_the_category_page(client, staff, silk_category):
+def test_subcategory_is_created_from_its_own_admin_page(client, staff, silk_category):
     client.force_login(staff)
-    change_url = reverse("admin:store_category_change", args=[silk_category.pk])
-    page = client.get(change_url)
-    formsets = {inline.formset.prefix: inline.formset for inline in page.context["inline_admin_formsets"]}
-
-    data = {
-        "title": silk_category.title,
-        "tier": silk_category.tier,
-        "slug": silk_category.slug,
-        "subtitle": "",
-        "image": "",
-        "order": "0",
-        "_save": "Save",
-    }
-    for prefix, formset in formsets.items():
-        data.update(
-            {
-                f"{prefix}-TOTAL_FORMS": str(formset.total_form_count()),
-                f"{prefix}-INITIAL_FORMS": str(formset.initial_form_count()),
-                f"{prefix}-MIN_NUM_FORMS": "0",
-                f"{prefix}-MAX_NUM_FORMS": "1000",
-            }
-        )
-    data.update(
+    add_url = reverse("admin:store_subcategory_add")
+    response = client.post(
+        add_url,
         {
-            "subcategories-TOTAL_FORMS": "1",
-            "subcategories-0-title": "Organza Sarees",
-            "subcategories-0-subtitle": "Sheer festive drapes.",
-            "subcategories-0-order": "2",
-        }
+            "category": str(silk_category.pk),
+            "title": "Organza Sarees",
+            "slug": "OrganzaSarees",
+            "subtitle": "Sheer festive drapes.",
+            "order": "2",
+            "_save": "Save",
+        },
     )
-
-    response = client.post(change_url, data)
 
     assert response.status_code == 302
     created = SubCategory.objects.get(category=silk_category, title="Organza Sarees")
-    assert created.slug == "organza-sarees"
+    assert created.slug == "OrganzaSarees"
     assert created.order == 2
+
+
+@pytest.mark.django_db
+def test_subcategory_admin_requires_alphanumeric_slug(silk_category):
+    from store.admin import SubCategoryAdminForm
+
+    form = SubCategoryAdminForm(
+        data={"category": silk_category.pk, "title": "New Style", "slug": "", "order": "0"}
+    )
+    assert not form.is_valid()
+    assert "Please enter a slug." in form.errors["slug"][0]
+
+    form = SubCategoryAdminForm(
+        data={"category": silk_category.pk, "title": "New Style", "slug": "New-Style", "order": "0"}
+    )
+    assert not form.is_valid()
+    assert form.errors["slug"][0] == SLUG_VALIDATION_MESSAGE
+
+    form = SubCategoryAdminForm(
+        data={"category": silk_category.pk, "title": "New Style", "slug": "NewStyle", "order": "0"}
+    )
+    assert form.is_valid(), form.errors
 
 
 @pytest.mark.django_db
@@ -531,6 +560,21 @@ def test_subcategory_changelist_and_change_page_render(client, staff, silk_categ
     response = client.get(reverse("admin:store_subcategory_change", args=[silk_subcategory.pk]))
     assert response.status_code == 200
     assert silk_category.title in response.content.decode()
+    assert response.context["inline_admin_formsets"] == []
+    assert 'name="sarees-TOTAL_FORMS"' not in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_subcategory_add_page_hides_saree_section(client, staff, silk_category):
+    client.force_login(staff)
+
+    response = client.get(reverse("admin:store_subcategory_add"))
+
+    assert response.status_code == 200
+    assert response.context["inline_admin_formsets"] == []
+    assert 'name="sarees-TOTAL_FORMS"' not in response.content.decode()
+    assert "<strong>Slug</strong>" in response.content.decode()
+    assert response.context["adminform"].form.fields["slug"].help_text == SLUG_VALIDATION_MESSAGE
 
 
 @pytest.mark.django_db
@@ -546,6 +590,9 @@ def test_saree_admin_offers_only_the_parent_collection_choices(client, staff, si
     assert f'data-category="{other.pk}"' in content
     assert str(silk_subcategory.pk) in content
     assert str(other_sub.pk) in content
+    assert "<strong>Subcategory</strong>" in content
+    assert ">Subcategory</option>" in content
+    assert response.context["adminform"].form.fields["subcategory"].empty_label == "Subcategory"
 
 
 @pytest.mark.django_db
@@ -573,7 +620,8 @@ def test_saree_admin_slug_is_required_and_limited_to_letters_and_numbers(client,
     assert 'id="id_slug"' in content
     assert "<strong>Slug</strong>" in content
     assert response.context["adminform"].form.fields["slug"].required
-    assert 'name="slug"' in content and "letters and numbers only" in content
+    assert response.context["adminform"].form.fields["slug"].help_text == SLUG_VALIDATION_MESSAGE
+    assert 'name="slug"' in content and SLUG_VALIDATION_MESSAGE in content
 
     from store.forms import SareeAdminForm
 
@@ -583,7 +631,7 @@ def test_saree_admin_slug_is_required_and_limited_to_letters_and_numbers(client,
 
     invalid_slug = SareeAdminForm(data={"slug": "kanjivaram-silk"})
     invalid_slug.full_clean()
-    assert "no spaces or special characters" in invalid_slug.errors["slug"][0]
+    assert invalid_slug.errors["slug"][0] == SLUG_VALIDATION_MESSAGE
 
     valid_slug = SareeAdminForm(data={"slug": "Kanjivaram123"})
     valid_slug.full_clean()

@@ -3,6 +3,7 @@ from io import BytesIO
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.contrib import admin
 from django.urls import reverse
 from PIL import Image
 
@@ -55,45 +56,26 @@ def shopper_client(client, db):
 
 
 @pytest.mark.django_db
-def test_admin_can_create_a_product_category(client, admin_user):
+def test_product_categories_are_not_registered_in_admin(client, admin_user):
     client.force_login(admin_user)
 
-    response = client.post(
-        reverse("admin:store_producttype_add"),
-        {"name": "Accessories", "slug": "accessories", "description": "Bags and accessories", "order": "3", "is_active": "on", "_save": "Save"},
-    )
+    response = client.get(reverse("admin:index"))
 
-    assert response.status_code == 302
-    assert ProductType.objects.get(slug="accessories").name == "Accessories"
+    assert response.status_code == 200
+    assert ProductType not in admin.site._registry
+    assert "Product Categories" not in response.content.decode()
 
 
 @pytest.mark.django_db
-def test_admin_can_create_a_product_under_a_category(client, admin_user, product_type, settings, tmp_path):
-    settings.MEDIA_ROOT = tmp_path
+def test_sarees_are_labeled_products_in_admin(client, admin_user):
     client.force_login(admin_user)
 
-    response = client.post(
-        reverse("admin:store_product_add"),
-        {
-            "product_type": str(product_type.pk),
-            "name": "Kundan Necklace",
-            "slug": "KundanNecklace1",
-            "description": "A festive jewellery piece.",
-            "price": "1500.00",
-            "mrp": "",
-            "discount_percent": "",
-            "delivery_charge": "0.00",
-            "gst_percent": "5.00",
-            "image": png_upload(),
-            "in_stock": "on",
-            "_save": "Save",
-        },
-    )
+    response = client.get(reverse("admin:index"))
 
-    assert response.status_code == 302
-    product = Product.objects.get(slug="KundanNecklace1")
-    assert product.product_type == product_type
-    assert product.image.name.startswith("products/")
+    assert response.status_code == 200
+    assert Product not in admin.site._registry
+    assert "Products" in response.content.decode()
+    assert "Sarees" not in response.content.decode()
 
 
 @pytest.mark.django_db

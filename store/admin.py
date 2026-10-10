@@ -11,7 +11,7 @@ from django.utils.html import format_html
 from django.utils.http import unquote
 from django import forms
 
-from .forms import ProductAdminForm, ProductIdMixin, SareeAdminForm, SiteSettingsForm
+from .forms import ProductIdMixin, SareeAdminForm, SiteSettingsForm
 from .validators import IMAGE_UPLOAD_ERROR, validate_image_extension
 from .models import (
     AboutPage,
@@ -25,18 +25,29 @@ from .models import (
     LoginPage,
     PaymentProof,
     PaymentQR,
-    Product,
-    ProductType,
     Saree,
     SEO,
     SiteSettings,
     SubCategory,
+    SLUG_VALIDATION_MESSAGE,
     TermsPage,
 )
 
 
 class CategoryAdminForm(forms.ModelForm):
-    slug = forms.SlugField(required=False)
+    slug = forms.CharField(
+        label="Slug",
+        required=False,
+        max_length=150,
+        error_messages={"required": "Please enter a slug."},
+        help_text=SLUG_VALIDATION_MESSAGE,
+        widget=forms.TextInput(
+            attrs={
+                "pattern": "[A-Za-z0-9]+",
+                "title": SLUG_VALIDATION_MESSAGE,
+            }
+        ),
+    )
     tier = forms.ChoiceField(
         choices=Category.Tier.choices,
         required=False,
@@ -48,16 +59,23 @@ class CategoryAdminForm(forms.ModelForm):
         fields = "__all__"
 
     def clean_slug(self):
-        slug = self.cleaned_data["slug"]
-        base = slug
-        suffix = 2
-        while slug and Category.objects.filter(slug=slug).exclude(pk=self.instance.pk).exists():
-            slug = f"{base}-{suffix}"
-            suffix += 1
+        slug = self.cleaned_data.get("slug", "")
+        if self.instance.pk and slug == self.instance.slug:
+            return slug
+        if not slug:
+            if self.instance.pk:
+                return slug
+            raise forms.ValidationError("Please enter a slug.", code="required")
+        if not slug.isascii() or not slug.isalnum():
+            raise forms.ValidationError(
+                SLUG_VALIDATION_MESSAGE,
+                code="invalid",
+            )
         return slug
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["slug"].required = not bool(self.instance.pk)
         self.fields["tier"].initial = self.instance.tier if self.instance.pk else Category.Tier.BASIC
 
     def clean_tier(self):
@@ -65,26 +83,44 @@ class CategoryAdminForm(forms.ModelForm):
 
 
 class SubCategoryAdminForm(forms.ModelForm):
-    """Slug stays optional and is only unique inside its own category."""
+    """Validate new subcategory slugs while preserving existing legacy slugs."""
 
-    slug = forms.SlugField(required=False)
+    slug = forms.CharField(
+        label="Slug",
+        required=False,
+        max_length=150,
+        error_messages={"required": "Please enter a slug."},
+        help_text=SLUG_VALIDATION_MESSAGE,
+        widget=forms.TextInput(
+            attrs={
+                "pattern": "[A-Za-z0-9]+",
+                "title": SLUG_VALIDATION_MESSAGE,
+            }
+        ),
+    )
 
     class Meta:
         model = SubCategory
         fields = "__all__"
 
     def clean_slug(self):
-        slug = self.cleaned_data["slug"]
-        category = self.cleaned_data.get("category") or getattr(self.instance, "category", None)
-        if not slug or category is None:
+        slug = self.cleaned_data.get("slug", "")
+        if self.instance.pk and slug == self.instance.slug:
             return slug
-        base = slug
-        suffix = 2
-        siblings = SubCategory.objects.filter(category=category).exclude(pk=self.instance.pk)
-        while siblings.filter(slug=slug).exists():
-            slug = f"{base}-{suffix}"
-            suffix += 1
+        if not slug:
+            if self.instance.pk:
+                return slug
+            raise forms.ValidationError("Please enter a slug.", code="required")
+        if not slug.isascii() or not slug.isalnum():
+            raise forms.ValidationError(
+                SLUG_VALIDATION_MESSAGE,
+                code="invalid",
+            )
         return slug
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["slug"].required = not bool(self.instance.pk)
 
 
 admin.site.site_header = "Swathi Designers Admin"
@@ -524,17 +560,13 @@ class CategoryAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_display = ("title", "order", "saree_count", "subcategory_count")
     list_filter = ()
     search_fields = ("title", "subtitle")
-    prepopulated_fields = {"slug": ("title",)}
-    inlines = [SubCategoryInline, SareeInline]
+    inlines = []
     delete_confirmation_template = "admin/store/category/delete_confirmation.html"
 
     def get_inline_instances(self, request, obj=None):
         if obj is None:
             return []
         return super().get_inline_instances(request, obj)
-
-    class Media:
-        js = (SELECTED_INLINE_DELETE_JS,)
 
     @admin.display(description="Sarees")
     def saree_count(self, obj):
@@ -665,7 +697,7 @@ class SubCategoryAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     list_filter = ("category",)
     search_fields = ("title", "subtitle", "category__title")
     autocomplete_fields = ("category",)
-    inlines = [SubCategorySareeInline]
+    inlines = []
 
     @admin.display(description="Sarees")
     def saree_count(self, obj):
@@ -698,27 +730,6 @@ class SareeAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
 
     class Media:
         js = (SUBCATEGORY_FILTER_JS,)
-
-
-@admin.register(ProductType)
-class ProductTypeAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    list_display = ("name", "slug", "order", "is_active", "product_count")
-    list_editable = ("order", "is_active")
-    search_fields = ("name", "description")
-    prepopulated_fields = {"slug": ("name",)}
-
-    @admin.display(description="Products")
-    def product_count(self, obj):
-        return obj.products.count()
-
-
-@admin.register(Product)
-class ProductAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    form = ProductAdminForm
-    list_display = ("name", "product_type", "price", "in_stock", "is_featured", "created_at")
-    list_filter = ("product_type", "in_stock", "is_featured")
-    search_fields = ("name", "description", "product_type__name")
-    autocomplete_fields = ("product_type",)
 
 
 @admin.register(PaymentQR)

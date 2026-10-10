@@ -7,7 +7,14 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 
-from .models import ContactMessage, Product, Saree, SiteSettings, SubCategory
+from .models import (
+    SLUG_VALIDATION_MESSAGE,
+    ContactMessage,
+    Product,
+    Saree,
+    SiteSettings,
+    SubCategory,
+)
 from .maps import extract_map_source
 from .validators import IMAGE_UPLOAD_ERROR, validate_payment_image_extension
 
@@ -96,16 +103,18 @@ class SareeAdminForm(ProductIdMixin, forms.ModelForm):
         required=False,
         max_length=200,
         error_messages={"required": "Please enter a slug."},
-        help_text="Required for new sarees. Enter letters and numbers only; no spaces or special characters.",
+        help_text=SLUG_VALIDATION_MESSAGE,
         widget=forms.TextInput(
             attrs={
                 "pattern": "[A-Za-z0-9]+",
-                "title": "Enter letters and numbers only, with no spaces or special characters.",
+                "title": SLUG_VALIDATION_MESSAGE,
             }
         ),
     )
     subcategory = SubCategoryChoiceField(
         queryset=SubCategory.objects.select_related("category").order_by("category__title", "order", "id"),
+        label="Subcategory",
+        empty_label="Subcategory",
         required=False,
         widget=SubCategoryChoiceWidget,
         help_text="Only sub categories belonging to the selected category can be picked.",
@@ -129,7 +138,7 @@ class SareeAdminForm(ProductIdMixin, forms.ModelForm):
             return slug
         if not re.fullmatch(r"[A-Za-z0-9]+", slug):
             raise ValidationError(
-                "Enter letters and numbers only, with no spaces or special characters.",
+                SLUG_VALIDATION_MESSAGE,
                 code="invalid",
             )
         return slug
@@ -139,11 +148,11 @@ class ProductAdminForm(forms.ModelForm):
     slug = forms.CharField(
         label="Slug",
         max_length=200,
-        help_text="Enter letters and numbers only; no spaces or special characters.",
+        help_text=SLUG_VALIDATION_MESSAGE,
         widget=forms.TextInput(
             attrs={
                 "pattern": "[A-Za-z0-9]+",
-                "title": "Enter letters and numbers only, with no spaces or special characters.",
+                "title": SLUG_VALIDATION_MESSAGE,
             }
         ),
     )
@@ -169,7 +178,7 @@ class ProductAdminForm(forms.ModelForm):
         slug = self.cleaned_data["slug"]
         if not re.fullmatch(r"[A-Za-z0-9]+", slug):
             raise ValidationError(
-                "Enter letters and numbers only, with no spaces or special characters.",
+                SLUG_VALIDATION_MESSAGE,
                 code="invalid",
             )
         return slug

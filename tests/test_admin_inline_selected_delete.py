@@ -111,12 +111,11 @@ def test_category_change_page_renders_delete_button_in_the_submit_row(admin_user
 
     content = client.get(reverse("admin:store_category_change", args=[category.pk])).content.decode()
 
-    assert "store/admin/selected-inline-delete.js" in content
     assert 'class="submit-row"' in content
     assert 'class="deletelink"' in content
     assert reverse("admin:store_category_delete", args=[category.pk]) in content
-    # The markup the previous version of the script searched for is gone, which
-    # is exactly why "Delete" used to fall through to the whole-category delete.
+    assert 'class="inline-group"' not in content
+    assert chiffon_saree.name not in content
     object_tools = re.search(r'<ul class="object-tools">(.*?)</ul>', content, re.DOTALL)
     assert object_tools is not None
     assert "/delete/" not in object_tools.group(1)
@@ -138,37 +137,21 @@ def test_order_change_page_renders_delete_button_in_the_submit_row(
 
 
 @pytest.mark.django_db
-def test_category_change_page_serves_the_helper_script(
+def test_category_change_page_does_not_load_inline_delete_script(
     admin_user, client, category, chiffon_saree, live_server
 ):
-    """The rendered script URL resolves and returns the actual static asset."""
     client.force_login(admin_user)
 
     content = client.get(reverse("admin:store_category_change", args=[category.pk])).content.decode()
 
     srcs = re.findall(r'<script[^>]*src="([^"]*selected-inline-delete\.js[^"]*)"', content)
-    assert srcs, "the helper script is not referenced by the change page"
-    for src in srcs:
-        # A cache-busting "?v=..." query string is percent-encoded into the path
-        # by django.forms.widgets.Media and 404s.
-        assert "%3F" not in src and "%3D" not in src, src
-        assert "?" not in src, src
-        assert src.endswith(SELECTED_INLINE_DELETE_JS), src
-
-    assert finders.find(SELECTED_INLINE_DELETE_JS), (
-        f"{SELECTED_INLINE_DELETE_JS} is referenced but not on disk"
-    )
-    script_url = urljoin(live_server.url + reverse("admin:store_category_change", args=[category.pk]), srcs[0])
-    with urlopen(script_url) as response:
-        assert response.status == 200
-        assert response.read() == SCRIPT.read_bytes()
+    assert srcs == []
 
 
 @pytest.mark.django_db
-def test_category_change_page_renders_the_markup_the_script_relies_on(
+def test_category_change_page_hides_saree_inline_markup(
     admin_user, client, category, chiffon_saree, silk_saree
 ):
-    """Guard every selector in the helper script against real Django markup."""
     client.force_login(admin_user)
 
     content = client.get(reverse("admin:store_category_change", args=[category.pk])).content.decode()
@@ -184,21 +167,10 @@ def test_category_change_page_renders_the_markup_the_script_relies_on(
     assert len(delete_anchors) == 1, delete_anchors
     assert reverse("admin:store_category_delete", args=[category.pk]) in delete_anchors[0]
 
-    # Inline rows live in a ".inline-group" and expose a hidden "-id" input plus a
-    # "-DELETE" checkbox, so a ticked box can be mapped back to a saree pk.
-    assert 'class="js-inline-admin-formset inline-group"' in content
-    ids = dict(
-        (index, pk)
-        for index, pk in re.findall(
-            r'<input type="hidden" name="sarees-(\d+)-id" value="(\d+)"', content
-        )
-    )
-    # Row order follows Saree.Meta.ordering ("-created_at", no tiebreaker), so only
-    # the index -> pk mapping matters here, not which saree lands on which row.
-    assert set(ids) == {"0", "1"}
-    assert set(ids.values()) == {str(silk_saree.pk), str(chiffon_saree.pk)}
-    for index in ids:
-        assert f'<input type="checkbox" name="sarees-{index}-DELETE"' in content
+    assert 'class="inline-group"' not in content
+    assert 'name="sarees-TOTAL_FORMS"' not in content
+    assert chiffon_saree.name not in content
+    assert silk_saree.name not in content
 
 
 # --------------------------------------------------------------------------- #
@@ -211,26 +183,11 @@ def test_script_sends_only_the_ticked_saree_when_delete_is_clicked(
 ):
     client.force_login(admin_user)
     change_url = reverse("admin:store_category_change", args=[category.pk])
-    delete_url = reverse("admin:store_category_delete", args=[category.pk])
     content = client.get(change_url).content.decode()
     rows = inline_rows(content, "sarees", 2)
-    # Row order follows Saree.Meta.ordering ("-created_at", no tiebreaker), so
-    # tick whichever row actually renders the chiffon saree.
-    victim = next(row for row in rows if row["id"] == str(chiffon_saree.pk))
-    for row in rows:
-        row["deleteChecked"] = row is victim
-
-    result = run_inline_delete_script(
-        origin="http://testserver",
-        deleteUrl=delete_url,
-        deleteLinkIn="submit-row",
-        rows=rows,
-    )
-
-    assert result["intercepted"] is True
-    assert result["navigatedTo"] == build_selected_delete_url(
-        delete_url, "selected_sarees", [chiffon_saree.pk], origin="http://testserver"
-    )
+    assert all(not row["id"] for row in rows)
+    assert chiffon_saree.name not in content
+    assert silk_saree.name not in content
 
 
 @node_required
@@ -494,7 +451,7 @@ def test_order_selection_cannot_remove_every_item(admin_user, client, order_with
 def test_saving_with_a_ticked_checkbox_still_keeps_the_category(
     admin_user, client, category, chiffon_saree, silk_saree
 ):
-    """The other half of the flow: tick + Save removes the row, not the category."""
+    """Stale inline fields cannot alter products when the inline is no longer shown."""
     client.force_login(admin_user)
     change_url = reverse("admin:store_category_change", args=[category.pk])
     response = client.get(change_url)
@@ -517,5 +474,5 @@ def test_saving_with_a_ticked_checkbox_still_keeps_the_category(
     )
 
     assert Category.objects.filter(pk=category.pk).exists()
-    assert not Saree.objects.filter(pk=chiffon_saree.pk).exists()
+    assert Saree.objects.filter(pk=chiffon_saree.pk).exists()
     assert Saree.objects.filter(pk=silk_saree.pk).exists()

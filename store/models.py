@@ -20,6 +20,7 @@ from .validators import validate_image_extension, validate_payment_image_extensi
 # empty so every saree still shows the full set of details.
 DEFAULT_SAREE_LENGTH = "6.3 metres (with blouse piece)"
 DEFAULT_DISPATCH_NOTE = "Ready to ship in 24 hrs"
+SLUG_VALIDATION_MESSAGE = "Enter letters and numbers only no spaces or special character"
 
 
 class SiteSettings(models.Model):
@@ -203,7 +204,12 @@ class Category(models.Model):
 
     title = models.CharField(max_length=120)
     tier = models.CharField(max_length=20, choices=Tier.choices, db_index=True)
-    slug = models.SlugField(max_length=150, unique=True, blank=True)
+    slug = models.SlugField(
+        max_length=150,
+        unique=True,
+        blank=True,
+        help_text=SLUG_VALIDATION_MESSAGE,
+    )
     subtitle = models.CharField(max_length=200, blank=True)
     image = models.ImageField(upload_to="categories/", blank=True, null=True)
     order = models.PositiveIntegerField(default=0)
@@ -251,7 +257,7 @@ class SubCategory(models.Model):
 
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name="subcategories")
     title = models.CharField(max_length=120)
-    slug = models.SlugField(max_length=150, blank=True)
+    slug = models.SlugField(max_length=150, blank=True, help_text=SLUG_VALIDATION_MESSAGE)
     subtitle = models.CharField(max_length=200, blank=True)
     image = models.ImageField(upload_to="categories/", blank=True, null=True)
     order = models.PositiveIntegerField(default=0)
@@ -315,7 +321,7 @@ class Saree(models.Model):
         db_index=True,
         help_text="Between 4 and 220 characters, for example SD-SRK-1001. Required for new products.",
     )
-    slug = models.SlugField(max_length=200, blank=True)
+    slug = models.SlugField(max_length=200, blank=True, help_text=SLUG_VALIDATION_MESSAGE)
     price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0.00"))])
     mrp = models.DecimalField(
         max_digits=10,
@@ -379,6 +385,8 @@ class Saree(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        verbose_name = "Product"
+        verbose_name_plural = "Products"
 
     def __str__(self):
         return self.name
@@ -511,7 +519,7 @@ class Saree(models.Model):
 
 class ProductType(models.Model):
     name = models.CharField(max_length=120, unique=True)
-    slug = models.SlugField(max_length=140, unique=True)
+    slug = models.SlugField(max_length=140, unique=True, help_text=SLUG_VALIDATION_MESSAGE)
     description = models.CharField(max_length=250, blank=True)
     order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -528,7 +536,7 @@ class ProductType(models.Model):
 class Product(models.Model):
     product_type = models.ForeignKey(ProductType, on_delete=models.PROTECT, related_name="products")
     name = models.CharField(max_length=150)
-    slug = models.SlugField(max_length=200, unique=True)
+    slug = models.SlugField(max_length=200, unique=True, help_text=SLUG_VALIDATION_MESSAGE)
     description = models.TextField(blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal("0.00"))])
     mrp = models.DecimalField(
