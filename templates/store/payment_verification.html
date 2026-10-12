@@ -21,6 +21,7 @@
                             <div class="qr-box d-inline-block">
                                 <img src="{{ payment_qr.image.url }}" alt="Scan to pay QR">
                             </div>
+                            {% if payment_qr.label %}<div class="small fw-semibold mt-2">{{ payment_qr.label }}</div>{% endif %}
                             <div class="small text-muted mt-2">Scan and pay, then upload the screenshot below.</div>
                         </div>
                     {% endif %}

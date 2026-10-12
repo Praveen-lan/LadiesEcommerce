@@ -56,6 +56,7 @@ from .models import (
     SubCategory,
     TermsPage,
 )
+from .richtext import sanitize_terms_html
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,11 @@ PROFILE_LOGO_SIZE = (300, 300)
 PHONE_ERROR = "Please give correct number."
 
 CHECKOUT_PAYMENT_METHODS = ((Order.PaymentMethod.QR, Order.PaymentMethod.QR.label),)
+
+
+def custom_404(request, exception):
+    return render(request, "404.html", status=404)
+
 
 # Used when staff have not uploaded a QR image or set a UPI id in the admin, so
 # the payment method section always shows a scannable code out of the box.
@@ -95,7 +101,9 @@ def _seo_context(request, site=None, seo=None, title=None, description=None, key
         banner = Banner.objects.filter(is_active=True).first()
         image = banner.image if banner else None
         if not image:
-            saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
+            saree = Saree.objects.filter(is_featured=True).filter(
+                Q(image__gt="") | Q(image_url__gt="")
+            ).first()
             image = saree.image_source if saree else None
 
     canonical = _canonical_url(request, seo)
@@ -173,7 +181,7 @@ def _base_context(request=None):
         "navigation_categories": categories.prefetch_related(
             Prefetch(
                 "subcategories",
-                queryset=SubCategory.objects.filter(sarees__isnull=False).distinct(),
+                queryset=SubCategory.objects.filter(sarees__is_featured=True).distinct(),
             )
         ),
         "navigation_product_types": ProductType.objects.filter(is_active=True).prefetch_related(
@@ -294,7 +302,9 @@ def login_view(request):
         description="Sign in to Swathi Designers to access your account and continue shopping for beautiful sarees.",
         noindex=True,
     )
-    login_images = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt=""))[:3]
+    login_images = Saree.objects.filter(is_featured=True).filter(
+        Q(image__gt="") | Q(image_url__gt="")
+    )[:3]
     login_content = LoginPage.current() or LoginPage()
     error = ""
     login_errors = {}
@@ -629,7 +639,7 @@ def home(request):
     context["banners"] = banners
 
     layers = []
-    for cat in Category.objects.all().order_by("order"):
+    for cat in Category.objects.all():
         sarees = list(cat.sarees.filter(is_featured=True)[:10])
         if sarees:
             layers.append({"category": cat, "sarees": sarees})
@@ -641,7 +651,9 @@ def about(request):
     context = _base_context(request)
     defaults = AboutPage()
     page = AboutPage.current() or defaults
-    about_saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
+    about_saree = Saree.objects.filter(is_featured=True).filter(
+        Q(image__gt="") | Q(image_url__gt="")
+    ).first()
     image = page.image.url if page.image else (about_saree.image_source if about_saree else None)
     context.update(
         {
@@ -708,7 +720,7 @@ def terms(request):
             "terms_page": page,
             "terms_title": page.title or defaults.title,
             "terms_subtitle": page.subtitle or defaults.subtitle,
-            "terms_content": page.content or defaults.content,
+            "terms_content": sanitize_terms_html(page.content or defaults.content),
         }
     )
     site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
@@ -736,7 +748,7 @@ def catalog(request):
 
     layers = []
     for cat in cats:
-        qs = cat.sarees.all()
+        qs = cat.sarees.filter(is_featured=True)
         if query:
             qs = qs.filter(
                 Q(name__icontains=query)
@@ -747,7 +759,9 @@ def catalog(request):
         if sarees:
             layers.append({"category": cat, "sarees": sarees})
     catalog_banner = Banner.objects.filter(is_active=True).first()
-    catalog_saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
+    catalog_saree = Saree.objects.filter(is_featured=True).filter(
+        Q(image__gt="") | Q(image_url__gt="")
+    ).first()
     catalog_banner_image = (
         catalog_banner.image.url
         if catalog_banner and catalog_banner.image
@@ -793,7 +807,7 @@ def all_products(request):
     product_types = ProductType.objects.filter(is_active=True)
     collections = Category.objects.all()
     product_queryset = Product.objects.filter(product_type__is_active=True).select_related("product_type")
-    saree_queryset = Saree.objects.select_related("category")
+    saree_queryset = Saree.objects.filter(is_featured=True).select_related("category")
 
     filter_options = [
         {"value": f"product:{product_type.slug}", "label": product_type.name}
@@ -831,7 +845,9 @@ def all_products(request):
     )
     banner = Banner.objects.filter(is_active=True).first()
     banner_item = Product.objects.filter(product_type__is_active=True).first()
-    banner_saree = Saree.objects.filter(Q(image__gt="") | Q(image_url__gt="")).first()
+    banner_saree = Saree.objects.filter(is_featured=True).filter(
+        Q(image__gt="") | Q(image_url__gt="")
+    ).first()
     banner_image = (
         banner.image.url
         if banner and banner.image
@@ -874,8 +890,12 @@ def category_detail(request, slug):
         raise Http404(f"No category matches the given query: {slug}")
     context = _base_context(request)
     context["category"] = category
-    context["sarees"] = category.sarees.all()
-    context["subcategories"] = category.subcategories.filter(sarees__isnull=False).distinct()
+    context["sarees"] = category.sarees.filter(is_featured=True)
+    context["subcategories"] = category.subcategories.filter(
+        sarees__is_featured=True
+    ).distinct().prefetch_related(
+        Prefetch("sarees", queryset=Saree.objects.filter(is_featured=True), to_attr="featured_sarees")
+    )
     site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
     context.update(
         _seo_context(
@@ -900,10 +920,12 @@ def subcategory_detail(request, category_slug, slug):
     context = _base_context(request)
     context["subcategory"] = subcategory
     context["category"] = subcategory.category
-    context["sarees"] = subcategory.sarees.all()
+    context["sarees"] = subcategory.sarees.filter(is_featured=True)
     context["subcategories"] = subcategory.category.subcategories.filter(
-        sarees__isnull=False
-    ).distinct()
+        sarees__is_featured=True
+    ).distinct().prefetch_related(
+        Prefetch("sarees", queryset=Saree.objects.filter(is_featured=True), to_attr="featured_sarees")
+    )
     site_name = context["site"].shop_name if context["site"] else context["seo"].site_name
     context.update(
         _seo_context(
@@ -924,8 +946,8 @@ def subcategory_detail(request, category_slug, slug):
 
 
 def saree_detail(request, slug):
-    saree = get_object_or_404(Saree, slug=slug)
-    related = saree.category.sarees.exclude(pk=saree.pk)[:4]
+    saree = get_object_or_404(Saree, slug=slug, is_featured=True)
+    related = saree.category.sarees.filter(is_featured=True).exclude(pk=saree.pk)[:4]
     context = _base_context(request)
     context["saree"] = saree
     context["related"] = related

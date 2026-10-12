@@ -92,7 +92,8 @@ class SEO(models.Model):
         verbose_name="Google site Verification",
     )
     robots_extra = models.TextField(blank=True)
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated time")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Last Updated")
 
     class Meta:
         verbose_name = "SEO Settings"
@@ -114,6 +115,7 @@ class LoginPage(models.Model):
     )
     tagline = models.CharField(max_length=160, default="Your saree story begins here")
     background_image = models.ImageField(upload_to="site/", blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -144,6 +146,7 @@ class AboutPage(models.Model):
     delivery_commitment = models.CharField(max_length=80, default="Fast Delivery")
     support_commitment = models.CharField(max_length=80, default="24/7 Online Support")
     exchange_commitment = models.CharField(max_length=80, default="Fast Exchange")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -170,7 +173,8 @@ class TermsPage(models.Model):
     content = models.TextField(
         default="1. About Swathi Designers\nSwathi Designers provides thoughtfully curated sarees and related services through this website.\n\n2. Product information\nProduct images, descriptions, prices and availability may change. Please review the product details before placing an order.\n\n3. Orders and payments\nOrders are confirmed after successful payment or confirmation of cash on delivery. We may contact you to verify order details before dispatch.\n\n4. Delivery\nWe aim to dispatch orders quickly and provide delivery updates through the contact details shared for the order. Delivery timelines may vary by location.\n\n5. Exchanges and returns\nIf you receive a damaged or incorrect item, contact us promptly with your order details. Exchanges or returns are handled according to our quality-check and customer support process.\n\n6. Privacy\nWe use the information you provide to process orders, respond to enquiries and improve your shopping experience. We do not sell your personal information.\n\n7. Contact\nFor questions about an order, product or these terms, please use the Contact Us page to reach our support team."
     )
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created at")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Last Updated")
 
     class Meta:
         verbose_name = "Terms and Conditions Page"
@@ -188,6 +192,7 @@ class ContactMessage(models.Model):
     message = models.TextField()
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Last Updated")
 
     class Meta:
         ordering = ["-created_at"]
@@ -212,11 +217,10 @@ class Category(models.Model):
     )
     subtitle = models.CharField(max_length=200, blank=True)
     image = models.ImageField(upload_to="categories/", blank=True, null=True)
-    order = models.PositiveIntegerField(default=0)
 
     class Meta:
         verbose_name_plural = "Categories"
-        ordering = ["order", "id"]
+        ordering = ["id"]
 
     def __str__(self):
         return self.title
@@ -241,7 +245,9 @@ class Category(models.Model):
     def banner_image(self):
         if self.image:
             return self.image.url
-        saree = self.sarees.filter(models.Q(image__gt="") | models.Q(image_url__gt="")).first()
+        saree = self.sarees.filter(
+            is_featured=True,
+        ).filter(models.Q(image__gt="") | models.Q(image_url__gt="")).first()
         return saree.image_source if saree else None
 
 
@@ -260,12 +266,11 @@ class SubCategory(models.Model):
     slug = models.SlugField(max_length=150, blank=True, help_text=SLUG_VALIDATION_MESSAGE)
     subtitle = models.CharField(max_length=200, blank=True)
     image = models.ImageField(upload_to="categories/", blank=True, null=True)
-    order = models.PositiveIntegerField(default=0)
 
     class Meta:
         verbose_name = "Sub Category"
         verbose_name_plural = "Sub Categories"
-        ordering = ["order", "id"]
+        ordering = ["id"]
         constraints = [
             models.UniqueConstraint(fields=("category", "slug"), name="unique_subcategory_slug_per_category"),
         ]
@@ -301,7 +306,9 @@ class SubCategory(models.Model):
     def banner_image(self):
         if self.image:
             return self.image.url
-        saree = self.sarees.filter(models.Q(image__gt="") | models.Q(image_url__gt="")).first()
+        saree = self.sarees.filter(
+            is_featured=True,
+        ).filter(models.Q(image__gt="") | models.Q(image_url__gt="")).first()
         return saree.image_source if saree else None
 
 
@@ -382,6 +389,7 @@ class Saree(models.Model):
     )
     is_featured = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Last Updated")
 
     class Meta:
         ordering = ["-created_at"]
@@ -642,9 +650,9 @@ class Product(models.Model):
 class Customer(models.Model):
     name = models.CharField(max_length=150)
     phone = models.CharField(max_length=30, unique=True)
-    email = models.EmailField(blank=True)
     profile_image = models.ImageField(upload_to="customers/", blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Last Updated")
 
     class Meta:
         ordering = ["-created_at"]
@@ -739,7 +747,6 @@ class Banner(models.Model):
     title = models.CharField(max_length=150, blank=True)
     subtitle = models.CharField(max_length=250, blank=True)
     image = models.ImageField(upload_to="banners/")
-    link = models.URLField(blank=True)
     is_active = models.BooleanField(default=True)
     order = models.PositiveIntegerField(default=0)
 
@@ -783,6 +790,7 @@ class Order(models.Model):
     gst = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=10, decimal_places=2)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Last Updated")
 
     class Meta:
         ordering = ["-created_at"]
@@ -922,15 +930,7 @@ class PaymentProof(models.Model):
     notes = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     submitted_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True, verbose_name="Updated time")
-    reviewed_at = models.DateTimeField(blank=True, null=True)
-    reviewed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="reviewed_payment_proofs",
-    )
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Last Updated")
 
     class Meta:
         ordering = ["-submitted_at", "-id"]

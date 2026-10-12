@@ -165,7 +165,7 @@ def test_the_starter_catalogue_covers_the_five_expected_styles(db):
 
 @pytest.mark.django_db
 def test_nav_dropdown_hides_subcategories_without_products(signed_in):
-    categories = Category.objects.order_by("order", "id")
+    categories = Category.objects.order_by("id")
     visible_category = categories.first()
     visible_subcategory = visible_category.subcategories.first()
     Saree.objects.create(
@@ -174,6 +174,7 @@ def test_nav_dropdown_hides_subcategories_without_products(signed_in):
         name="Visible Nav Saree",
         price="999",
         image_url="https://images.example/nav-saree.jpg",
+        is_featured=True,
     )
 
     response = signed_in.get(reverse("store:home"))
@@ -217,6 +218,7 @@ def test_collections_submenu_is_capped_and_scrollable_when_many_styles_exist(sig
             name=f"Style Saree {index:02}",
             price="999",
             image_url=f"https://images.example/style-{index:02}.jpg",
+            is_featured=True,
         )
 
     content = signed_in.get(reverse("store:home")).content.decode()
@@ -239,6 +241,7 @@ def test_subcategory_page_lists_only_its_own_sarees(
         name="Kanjivaram Antique Gold",
         price="8999",
         image_url="https://images.example/kanjivaram.jpg",
+        is_featured=True,
     )
     Saree.objects.create(
         category=silk_category,
@@ -286,6 +289,7 @@ def test_subcategory_page_offers_the_sibling_styles(signed_in, silk_category, si
             name=name,
             price="999",
             image_url=f"https://images.example/{subcategory.slug}.jpg",
+            is_featured=True,
         )
     content = signed_in.get(silk_subcategory.get_absolute_url()).content.decode()
 
@@ -337,6 +341,7 @@ def test_collection_page_links_to_each_of_its_subcategories(
             name=f"{subcategory.title} product",
             price="999",
             image_url=f"https://images.example/{subcategory.slug}.jpg",
+            is_featured=True,
         )
     response = signed_in.get(reverse("store:category_detail", args=[silk_category.slug]))
 
@@ -356,6 +361,7 @@ def test_collection_page_displays_subcategories_as_image_cards_and_keeps_all_sar
         name="Kanjivaram Antique Gold",
         price="8999",
         image_url="https://images.example/kanjivaram.jpg",
+        is_featured=True,
     )
 
     response = signed_in.get(reverse("store:category_detail", args=[silk_category.slug]))
@@ -378,6 +384,7 @@ def test_collection_saree_card_shows_admin_product_id_on_image(signed_in, silk_c
         product_id="SD-SRK-1001",
         price="2999.00",
         image_url="https://images.example/product-id-saree.jpg",
+        is_featured=True,
     )
 
     response = signed_in.get(reverse("store:category_detail", args=[silk_category.slug]))
@@ -397,6 +404,7 @@ def test_saree_page_links_to_its_subcategory_without_a_breadcrumb(
         name="Patola Heritage Silk",
         price="12999",
         image_url="https://images.example/patola.jpg",
+        is_featured=True,
     )
 
     content = signed_in.get(saree.get_absolute_url()).content.decode()
@@ -413,6 +421,7 @@ def test_saree_without_a_subcategory_still_renders(signed_in, silk_category):
         name="Unfiled Saree",
         price="999",
         image_url="https://images.example/unfiled.jpg",
+        is_featured=True,
     )
 
     response = signed_in.get(saree.get_absolute_url())
@@ -462,8 +471,11 @@ def test_category_add_page_omits_subcategory_and_saree_inlines(client, staff):
     assert response.context["adminform"].form.fields["slug"].required
     assert response.context["adminform"].form.fields["slug"].help_text == SLUG_VALIDATION_MESSAGE
     assert SLUG_VALIDATION_MESSAGE in content
+    assert "order" not in response.context["adminform"].form.fields
     assert "Tier:" not in content
-    assert "Tier" not in client.get(reverse("admin:store_category_changelist")).content.decode()
+    category_list = client.get(reverse("admin:store_category_changelist")).content.decode()
+    assert "Tier" not in category_list
+    assert 'class="column-order"' not in category_list
 
 
 @pytest.mark.django_db
@@ -472,7 +484,7 @@ def test_category_admin_assigns_hidden_tier_when_creating_category(client, staff
 
     response = client.post(
         reverse("admin:store_category_add"),
-        {"title": "New Collection", "slug": "NewCollection", "order": "0", "_save": "Save"},
+        {"title": "New Collection", "slug": "NewCollection", "_save": "Save"},
     )
 
     assert response.status_code == 302
@@ -483,15 +495,15 @@ def test_category_admin_assigns_hidden_tier_when_creating_category(client, staff
 def test_category_admin_requires_alphanumeric_slug(client, staff):
     from store.admin import CategoryAdminForm
 
-    form = CategoryAdminForm(data={"title": "New Collection", "slug": "", "order": "0"})
+    form = CategoryAdminForm(data={"title": "New Collection", "slug": ""})
     assert not form.is_valid()
     assert "Please enter a slug." in form.errors["slug"][0]
 
-    form = CategoryAdminForm(data={"title": "New Collection", "slug": "New-Collection", "order": "0"})
+    form = CategoryAdminForm(data={"title": "New Collection", "slug": "New-Collection"})
     assert not form.is_valid()
     assert form.errors["slug"][0] == SLUG_VALIDATION_MESSAGE
 
-    form = CategoryAdminForm(data={"title": "New Collection", "slug": "NewCollection", "order": "0"})
+    form = CategoryAdminForm(data={"title": "New Collection", "slug": "NewCollection"})
     assert form.is_valid(), form.errors
 
 
@@ -519,7 +531,6 @@ def test_subcategory_is_created_from_its_own_admin_page(client, staff, silk_cate
             "title": "Organza Sarees",
             "slug": "OrganzaSarees",
             "subtitle": "Sheer festive drapes.",
-            "order": "2",
             "_save": "Save",
         },
     )
@@ -527,7 +538,6 @@ def test_subcategory_is_created_from_its_own_admin_page(client, staff, silk_cate
     assert response.status_code == 302
     created = SubCategory.objects.get(category=silk_category, title="Organza Sarees")
     assert created.slug == "OrganzaSarees"
-    assert created.order == 2
 
 
 @pytest.mark.django_db
@@ -535,19 +545,19 @@ def test_subcategory_admin_requires_alphanumeric_slug(silk_category):
     from store.admin import SubCategoryAdminForm
 
     form = SubCategoryAdminForm(
-        data={"category": silk_category.pk, "title": "New Style", "slug": "", "order": "0"}
+        data={"category": silk_category.pk, "title": "New Style", "slug": ""}
     )
     assert not form.is_valid()
     assert "Please enter a slug." in form.errors["slug"][0]
 
     form = SubCategoryAdminForm(
-        data={"category": silk_category.pk, "title": "New Style", "slug": "New-Style", "order": "0"}
+        data={"category": silk_category.pk, "title": "New Style", "slug": "New-Style"}
     )
     assert not form.is_valid()
     assert form.errors["slug"][0] == SLUG_VALIDATION_MESSAGE
 
     form = SubCategoryAdminForm(
-        data={"category": silk_category.pk, "title": "New Style", "slug": "NewStyle", "order": "0"}
+        data={"category": silk_category.pk, "title": "New Style", "slug": "NewStyle"}
     )
     assert form.is_valid(), form.errors
 
@@ -575,6 +585,7 @@ def test_subcategory_add_page_hides_saree_section(client, staff, silk_category):
     assert 'name="sarees-TOTAL_FORMS"' not in response.content.decode()
     assert "<strong>Slug</strong>" in response.content.decode()
     assert response.context["adminform"].form.fields["slug"].help_text == SLUG_VALIDATION_MESSAGE
+    assert "order" not in response.context["adminform"].form.fields
 
 
 @pytest.mark.django_db
@@ -654,17 +665,16 @@ def test_admin_image_fields_reject_spreadsheets_and_csv(client, staff, filename,
         {
             "title": "Invalid upload",
             "subtitle": "",
-            "link": "",
             "is_active": "on",
-            "order": "0",
             "image": SimpleUploadedFile(filename, content, content_type="application/octet-stream"),
             "_save": "Save",
         },
     )
 
     assert response.status_code == 200
-    assert "Please upload an image in JPG, JPEG, PNG, or WebP format." in (
-        response.context["adminform"].form.errors["image"][0]
+    assert response.context["adminform"].form.errors["image"][0] == "Upload a JPG, JPEG, PNG image only."
+    assert response.context["adminform"].form.fields["image"].help_text == (
+        "Upload a JPG, JPEG, PNG image only."
     )
 
 

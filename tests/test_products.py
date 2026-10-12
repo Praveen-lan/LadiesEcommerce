@@ -2,21 +2,27 @@ from decimal import Decimal
 from io import BytesIO
 
 import pytest
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib import admin
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 from PIL import Image
 
+from store.admin import SareeInlineForm
+from store.forms import PRODUCT_ID_HELP_TEXT
 from store.models import (
     CartItem,
     Category,
     Customer,
+    LoginPage,
     Order,
     OrderItem,
+    OTPRequest,
     Product,
     ProductType,
     Saree,
+    SiteSettings,
     ShoppingCart,
+    TermsPage,
 )
 
 
@@ -67,6 +73,19 @@ def test_product_categories_are_not_registered_in_admin(client, admin_user):
 
 
 @pytest.mark.django_db
+def test_customer_admin_does_not_expose_email(client, admin_user):
+    client.force_login(admin_user)
+
+    response = client.get(reverse("admin:store_customer_changelist"))
+
+    assert response.status_code == 200
+    customer_admin = admin.site._registry[Customer]
+    assert "email" not in response.context["cl"].list_display
+    assert "email" not in customer_admin.search_fields
+    assert "email" not in [field.name for field in Customer._meta.fields]
+
+
+@pytest.mark.django_db
 def test_sarees_are_labeled_products_in_admin(client, admin_user):
     client.force_login(admin_user)
 
@@ -79,6 +98,96 @@ def test_sarees_are_labeled_products_in_admin(client, admin_user):
 
 
 @pytest.mark.django_db
+def test_product_admin_optional_fields_can_be_left_blank(client, admin_user, category):
+    client.force_login(admin_user)
+    add_url = reverse("admin:store_saree_add")
+
+    form_response = client.get(add_url)
+    form = form_response.context["adminform"].form
+    optional_fields = (
+        "subcategory",
+        "mrp",
+        "discount_percent",
+        "delivery_charge",
+        "gst_percent",
+        "length",
+        "dispatch_note",
+    )
+    assert all(not form.fields[field].required for field in optional_fields)
+    assert all(not form.fields[field].help_text for field in optional_fields)
+    assert form.fields["product_id"].help_text == PRODUCT_ID_HELP_TEXT
+    assert PRODUCT_ID_HELP_TEXT in form_response.content.decode()
+    assert not any(
+        text in form_response.content.decode()
+        for text in (
+            "Only sub categories belonging to the selected category",
+            "original amount before any discount",
+            "discount = original amount",
+            "Additional delivery charge",
+            "GST percentage applied",
+            "Shown on the saree card",
+            "Dispatch message shown",
+        )
+    )
+
+    inline_form = SareeInlineForm()
+    assert inline_form.fields["product_id"].help_text == PRODUCT_ID_HELP_TEXT
+    inline_optional_fields = set(optional_fields).intersection(inline_form.fields)
+    assert all(not inline_form.fields[field].required for field in inline_optional_fields)
+    assert all(not inline_form.fields[field].help_text for field in inline_optional_fields)
+
+    response = client.post(
+        add_url,
+        {
+            "category": category.pk,
+            "subcategory": "",
+            "name": "Optional details saree",
+            "product_id": "SD-OPT-1001",
+            "slug": "OptionalDetailsSaree1",
+            "price": "1499.00",
+            "mrp": "",
+            "discount_percent": "",
+            "delivery_charge": "",
+            "gst_percent": "",
+            "fabric": "",
+            "length": "",
+            "dispatch_note": "",
+            "description": "",
+            "image_url": "https://images.example/optional-details.jpg",
+        },
+    )
+
+    assert response.status_code == 302
+    saree = Saree.objects.get(product_id="SD-OPT-1001")
+    assert saree.subcategory is None
+    assert saree.discount_percent is None
+    assert saree.delivery_charge == Decimal("0.00")
+    assert saree.gst_percent == Decimal("5.00")
+    assert saree.length == ""
+    assert saree.dispatch_note == ""
+
+
+@pytest.mark.django_db
+def test_store_admin_models_keep_add_buttons_and_hide_otp_requests(client, admin_user):
+    client.force_login(admin_user)
+    SiteSettings.objects.create()
+    LoginPage.objects.create()
+    TermsPage.objects.create()
+
+    response = client.get(reverse("admin:index"))
+
+    assert response.status_code == 200
+    store_app = next(app for app in response.context["app_list"] if app["app_label"] == "store")
+    assert all(model["add_url"] for model in store_app["models"])
+    assert OTPRequest not in admin.site._registry
+    assert all(model["object_name"] != "OTPRequest" for model in store_app["models"])
+
+    settings_form = client.get(reverse("admin:store_sitesettings_add"))
+    assert settings_form.status_code == 200
+    assert "Map-Iframe" in settings_form.content.decode()
+
+
+@pytest.mark.django_db
 def test_all_products_page_lists_and_filters_legacy_and_generic_products(shopper_client, necklace):
     category = Category.objects.create(title="Luxury Silk", tier=Category.Tier.HIGH)
     saree = Saree.objects.create(
@@ -86,6 +195,7 @@ def test_all_products_page_lists_and_filters_legacy_and_generic_products(shopper
         name="Kanjivaram Saree",
         price="2500.00",
         image_url="https://images.example/saree.jpg",
+        is_featured=True,
     )
 
     response = shopper_client.get(reverse("store:all_products"))
@@ -98,6 +208,37 @@ def test_all_products_page_lists_and_filters_legacy_and_generic_products(shopper
     filtered = shopper_client.get(reverse("store:all_products"), {"category": "product:jewellery"})
     assert [item.name for item in filtered.context["all_items"]] == [necklace.name]
     assert "Kanjivaram Saree" not in filtered.content.decode()
+
+
+@pytest.mark.django_db
+def test_sarees_are_only_public_when_featured(shopper_client):
+    category = Category.objects.create(title="Featured Collection", tier=Category.Tier.HIGH)
+    hidden = Saree.objects.create(
+        category=category,
+        name="Hidden Saree",
+        price="1800.00",
+        image_url="https://images.example/hidden.jpg",
+    )
+    featured = Saree.objects.create(
+        category=category,
+        name="Featured Saree",
+        price="2200.00",
+        image_url="https://images.example/featured.jpg",
+        is_featured=True,
+    )
+
+    for url in (
+        reverse("store:catalog"),
+        reverse("store:category_detail", args=[category.slug]),
+        reverse("store:all_products"),
+    ):
+        response = shopper_client.get(url)
+        assert response.status_code == 200
+        assert "Hidden Saree" not in response.content.decode()
+        assert "Featured Saree" in response.content.decode()
+
+    assert shopper_client.get(reverse("store:saree_detail", args=[hidden.slug])).status_code == 404
+    assert shopper_client.get(reverse("store:saree_detail", args=[featured.slug])).status_code == 200
 
 
 @pytest.mark.django_db

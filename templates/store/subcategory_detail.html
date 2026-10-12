@@ -31,7 +31,7 @@
             {% for sub in subcategories %}
             <a href="{% url 'store:subcategory_detail' category.slug sub.slug %}" class="subcategory-chip{% if sub.pk == subcategory.pk %} active{% endif %}">
                 {{ sub.title }}
-                {% if sub.sarees.count %}<span class="subcategory-chip-count">{{ sub.sarees.count }}</span>{% endif %}
+                {% if sub.featured_sarees %}<span class="subcategory-chip-count">{{ sub.featured_sarees|length }}</span>{% endif %}
             </a>
             {% endfor %}
         </div>

@@ -7,12 +7,11 @@ from datetime import timedelta
 from django import forms
 from django.contrib import admin
 from django.contrib.auth.models import User
-from django.core.exceptions import ValidationError
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import models
 from django.test import TestCase
 from django.urls import reverse
-from django.utils.formats import date_format
 from django.utils import timezone
 from PIL import Image
 
@@ -99,9 +98,9 @@ class StorePageTests(TestCase):
 
     def test_catalog_page_renders_collection_banners(self):
         categories = [
-            Category.objects.create(title="High Collection", tier=Category.Tier.HIGH, order=1),
-            Category.objects.create(title="Medium Collection", tier=Category.Tier.MEDIUM, order=2),
-            Category.objects.create(title="Basic Collection", tier=Category.Tier.BASIC, order=3),
+            Category.objects.create(title="High Collection", tier=Category.Tier.HIGH),
+            Category.objects.create(title="Medium Collection", tier=Category.Tier.MEDIUM),
+            Category.objects.create(title="Basic Collection", tier=Category.Tier.BASIC),
         ]
         Saree.objects.create(
             category=categories[0],
@@ -252,6 +251,7 @@ class StorePageTests(TestCase):
             price="2499",
             image="sarees/seo-silk.jpg",
             description="A premium silk saree for weddings and celebrations.",
+            is_featured=True,
         )
 
         response = self.client.get(reverse("store:saree_detail", kwargs={"slug": saree.slug}))
@@ -593,6 +593,8 @@ class LoginPageAdminTests(TestCase):
                 "heading": "A New Login Headline",
                 "description": "A new login description.",
                 "tagline": "A new login tagline",
+                "last_updated_date": "2025-04-03",
+                "last_updated_time": "14:35:00",
                 "_save": "Save",
             },
         )
@@ -611,6 +613,8 @@ class LoginPageAdminTests(TestCase):
                 "description": "Background image test",
                 "tagline": "Welcome",
                 "background_image": uploaded_test_image("login.png"),
+                "last_updated_date": "2025-04-03",
+                "last_updated_time": "14:35:00",
                 "_save": "Save",
             },
         )
@@ -959,7 +963,6 @@ class CategorySareeRemovalTests(TestCase):
             "slug": self.category.slug,
             "subtitle": self.category.subtitle,
             "image": "",
-            "order": str(self.category.order),
             "_save": "Save",
             **inline_management_data(response),
             f"{prefix}-0-id": str(self.first_saree.pk),
@@ -1081,7 +1084,6 @@ class FeaturedSareeAdminTests(TestCase):
             "slug": self.category.slug,
             "subtitle": self.category.subtitle,
             "image": "",
-            "order": str(self.category.order),
             "_save": "Save",
             **inline_management_data(response),
             f"{prefix}-0-id": str(self.unfeatured.pk),
@@ -1233,10 +1235,17 @@ class SEOAdminTests(TestCase):
                 "default_description",
                 "default_keywords",
                 "google_site_verification",
+                "created_date",
+                "created_time",
+                "last_updated_date",
+                "last_updated_time",
             ],
         )
         self.assertNotIn("robots_extra", form.fields)
-        self.assertEqual(list(response.context["adminform"].readonly_fields), ["updated_at"])
+        self.assertNotIn("last_updated_date", response.context["adminform"].readonly_fields)
+        self.assertNotIn("last_updated_time", response.context["adminform"].readonly_fields)
+        self.assertEqual(form.fields["last_updated_date"].widget.__class__.__name__, "AdminDateWidget")
+        self.assertEqual(form.fields["last_updated_time"].widget.__class__.__name__, "AdminTimeWidget")
         self.assertTrue(all(field.required for field in form.fields.values()))
 
     def test_seo_form_shows_the_requested_labels(self):
@@ -1253,7 +1262,10 @@ class SEOAdminTests(TestCase):
             "Meta Description",
             "Meta keywords",
             "Google site Verification",
-            "Updated time",
+            "Created Date",
+            "Created Time",
+            "Last Updated Date",
+            "Last Updated Time",
         ):
             with self.subTest(label=label):
                 self.assertIn(label, content)
@@ -1274,34 +1286,46 @@ class SEOAdminTests(TestCase):
                 "default_description": "",
                 "default_keywords": "",
                 "google_site_verification": "",
+                "created_date": "",
+                "created_time": "",
+                "last_updated_date": "",
+                "last_updated_time": "",
             },
         )
 
         form = response.context["adminform"].form
         for field in form.fields:
             with self.subTest(field=field):
-                self.assertIn(field, form.errors)
+                if field not in ("created_date", "created_time"):
+                    self.assertIn(field, form.errors)
 
-    def test_updated_time_is_filled_in_automatically_on_save(self):
+    def test_admin_can_set_last_updated_date_and_time(self):
         seo = SEO.objects.create(site_name="Swathi Designers")
-        self.assertIsNotNone(seo.updated_at)
+        selected_date = "2025-04-03"
+        selected_time = "14:35:00"
 
-        self.client.post(
+        response = self.client.post(
             reverse("admin:store_seo_change", args=[seo.pk]),
             {
-                "page_name": "",
+                "page_name": "Home Page",
                 "site_name": "Swathi Designers",
                 "default_title": "Kanjivaram Silk Sarees",
-                "default_page_description": "",
-                "meta_title": "",
+                "default_page_description": "A short shop summary.",
+                "meta_title": "Kanjivaram Silk Sarees",
                 "default_description": "Handloom silk sarees.",
                 "default_keywords": "kanjivaram",
-                "google_site_verification": "",
+                "google_site_verification": "google123abc",
+                "created_date": "2024-12-01",
+                "created_time": "09:15:00",
+                "last_updated_date": selected_date,
+                "last_updated_time": selected_time,
             },
         )
 
+        self.assertEqual(response.status_code, 302)
         seo.refresh_from_db()
-        self.assertGreater(seo.updated_at, self.admin_user.date_joined)
+        self.assertEqual(timezone.localtime(seo.updated_at).strftime("%Y-%m-%d"), selected_date)
+        self.assertEqual(timezone.localtime(seo.updated_at).strftime("%H:%M:%S"), selected_time)
 
     def test_add_button_is_always_available(self):
         SEO.objects.create(site_name="Swathi Designers")
@@ -1345,7 +1369,13 @@ class SEOAdminTests(TestCase):
 
         for name, field in response.context["adminform"].form.fields.items():
             with self.subTest(field=name):
-                self.assertEqual(field.initial, "")
+                if name not in (
+                    "created_date",
+                    "created_time",
+                    "last_updated_date",
+                    "last_updated_time",
+                ):
+                    self.assertEqual(field.initial, "")
 
     def test_saving_seo_stores_every_box(self):
         seo = SEO.objects.create(site_name="Swathi Designers")
@@ -1361,6 +1391,10 @@ class SEOAdminTests(TestCase):
                 "default_description": "Handloom silk sarees for weddings.",
                 "default_keywords": "kanjivaram, silk sarees, wedding saree",
                 "google_site_verification": "google123abc",
+                "created_date": "2024-12-01",
+                "created_time": "09:15:00",
+                "last_updated_date": "2025-04-03",
+                "last_updated_time": "14:35:00",
             },
         )
 
@@ -1592,7 +1626,10 @@ class BlankAddFormTests(TestCase):
         for name, response in self._add_pages():
             form = response.context["adminform"].form
             for field_name, field in form.fields.items():
-                model_field = form._meta.model._meta.get_field(field_name)
+                try:
+                    model_field = form._meta.model._meta.get_field(field_name)
+                except FieldDoesNotExist:
+                    continue
                 if not isinstance(model_field, (models.CharField, models.TextField)):
                     continue
                 if isinstance(field.widget, (forms.CheckboxInput, forms.Select, forms.RadioSelect, forms.HiddenInput)):
@@ -1820,6 +1857,7 @@ class SareeCardDetailsTests(TestCase):
             fabric="Silk",
             description="A soft mulberry silk saree with a luminous drape.",
             image_url="https://example.com/a.jpg",
+            is_featured=True,
         )
 
     def test_the_card_shows_only_the_name_and_price(self):
@@ -1974,6 +2012,7 @@ class CartUsesTheDiscountedAmountTests(TestCase):
             mrp=Decimal("1000.00"),
             discount_percent=Decimal("20"),
             image_url="https://example.com/a.jpg",
+            is_featured=True,
         )
         self.customer = Customer.objects.create(name="Cart Shopper", phone="9876543210")
         session = self.client.session
@@ -2204,10 +2243,16 @@ class PaymentQRAdminTests(TestCase):
         content = self.client.get(reverse("store:checkout")).content.decode()
 
         self.assertIn("payment-qr/", content)
+        self.assertIn("Main UPI", content)
         self.assertNotIn("checkout-qr-heading", content)
         self.assertIn("shop@upi", content)
         self.assertIn("Amount to pay", content)
         self.assertIn("Payment Verification", content)
+
+        verification_content = self.client.get(
+            reverse("store:payment_verification")
+        ).content.decode()
+        self.assertIn("Main UPI", verification_content)
 
     def test_the_checkout_falls_back_to_the_generated_qr_when_none_is_uploaded(self):
         self._login_customer()
@@ -2216,13 +2261,50 @@ class PaymentQRAdminTests(TestCase):
         self.assertEqual(response.context["payment_qr"], None)
         self.assertContains(response, reverse("store:generate_qr"))
 
-    def test_only_one_qr_can_be_added_so_the_payment_screen_stays_unambiguous(self):
-        self.client.get(reverse("admin:store_paymentqr_add"))
+    def test_another_qr_can_be_added_and_labeled_in_the_admin(self):
         PaymentQR.objects.create(label="Main UPI", image=self._image())
 
-        response = self.client.get(reverse("admin:store_paymentqr_add"))
+        add_url = reverse("admin:store_paymentqr_add")
+        response = self.client.get(add_url)
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(
+            add_url,
+            {
+                "label": "Backup UPI",
+                "image": self._image("backup.png"),
+                "upi_id": "backup@upi",
+                "is_active": "on",
+                "last_updated_date": "2025-04-03",
+                "last_updated_time": "14:35:00",
+                "_save": "Save",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(PaymentQR.objects.filter(label="Backup UPI").exists())
+
+    def test_payment_verification_admin_hides_date_drilldown_and_review_fields(self):
+        proof = PaymentProof.objects.create(
+            customer=self.customer,
+            customer_name="Scan Shopper",
+            amount=Decimal("1000.00"),
+            screenshot=self._image("payment-proof.png"),
+        )
+        self.client.force_login(self.admin)
+
+        changelist = self.client.get(reverse("admin:store_paymentproof_changelist"))
+        detail = self.client.get(reverse("admin:store_paymentproof_change", args=[proof.pk]))
+        model_admin = admin.site._registry[PaymentProof]
+
+        self.assertEqual(changelist.status_code, 200)
+        self.assertIsNone(model_admin.date_hierarchy)
+        self.assertNotIn("submitted_at", model_admin.list_filter)
+        self.assertEqual(detail.status_code, 200)
+        self.assertNotContains(detail, "reviewed_by")
+        self.assertNotContains(detail, "reviewed_at")
+        self.assertNotIn("reviewed_by", [field.name for field in PaymentProof._meta.fields])
+        self.assertNotIn("reviewed_at", [field.name for field in PaymentProof._meta.fields])
 
     def test_the_newest_active_qr_is_the_one_used(self):
         PaymentQR.objects.create(label="Old", image=self._image(colour="red"), created_at="2026-01-01T10:00:00Z")
@@ -2464,8 +2546,6 @@ class PaymentVerificationUploadTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(proof.status, PaymentProof.Status.VERIFIED)
-        self.assertEqual(proof.reviewed_by, self.admin)
-        self.assertIsNotNone(proof.reviewed_at)
         self.assertGreater(proof.updated_at, old_timestamp)
 
     def test_admin_detail_shows_uploaded_screenshot_and_latest_updated_time(self):
@@ -2483,12 +2563,13 @@ class PaymentVerificationUploadTests(TestCase):
         self.assertEqual(response.status_code, 200)
         screenshot_url = reverse("admin:store_paymentproof_screenshot", args=[proof.pk])
         self.assertContains(response, screenshot_url)
-        self.assertContains(response, "Updated time")
-        self.assertContains(response, date_format(timezone.localtime(proof.updated_at)))
-        self.assertIn(
-            "updated_at",
-            admin.site._registry[PaymentProof].get_readonly_fields(response.wsgi_request, proof),
-        )
+        self.assertContains(response, "Last Updated Date")
+        self.assertContains(response, "Last Updated Time")
+        self.assertContains(response, 'name="last_updated_date"')
+        self.assertContains(response, 'name="last_updated_time"')
+        readonly_fields = admin.site._registry[PaymentProof].get_readonly_fields(response.wsgi_request, proof)
+        self.assertNotIn("last_updated_date", readonly_fields)
+        self.assertNotIn("last_updated_time", readonly_fields)
 
     def test_payment_screenshot_preview_is_served_only_to_admin_users(self):
         proof = PaymentProof(
@@ -2585,6 +2666,7 @@ class SareeCardDiscountVisibilityTests(TestCase):
             mrp=Decimal("1000.00"),
             discount_percent=Decimal("20"),
             image_url="https://example.com/offer.jpg",
+            is_featured=True,
         )
         session = self.client.session
         session["customer_id"] = Customer.objects.create(name="Card Shopper", phone="9876543210").pk

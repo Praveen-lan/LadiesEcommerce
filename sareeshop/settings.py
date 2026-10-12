@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.sitemaps',
     'django.contrib.staticfiles',
+    'django_prose_editor',
     'store',
 ]
 
@@ -66,6 +67,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'store.middleware.PrivateHtmlCacheMiddleware',
     'store.middleware.StorefrontLoginRequiredMiddleware',
+    'store.middleware.Branded404Middleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',

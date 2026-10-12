@@ -38,6 +38,7 @@ def chiffon_saree(category):
         name="Chiffon Sunset Saree",
         price="2499.00",
         image_url="https://images.example/chiffon-sunset.jpg",
+        is_featured=True,
     )
 
 
@@ -48,6 +49,7 @@ def silk_saree(category):
         name="Kanjivaram Silk Saree",
         price="2999.00",
         image_url="https://images.example/kanjivaram.jpg",
+        is_featured=True,
     )
 
 

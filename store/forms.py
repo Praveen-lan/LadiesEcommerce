@@ -73,6 +73,7 @@ class SubCategoryChoiceField(forms.ModelChoiceField):
 PRODUCT_ID_MIN_LENGTH = 4
 PRODUCT_ID_MAX_LENGTH = 220
 PRODUCT_ID_REQUIRED = "Enter a product ID of 4 to 220 characters."
+PRODUCT_ID_HELP_TEXT = "Between 4 and 220 characters, for example: SD-SRK-1001."
 PRODUCT_ID_TOO_SHORT = "Ensure this value has at least 4 characters (it has %s)."
 PRODUCT_ID_TOO_LONG = "Ensure this value has at most 220 characters (it has %s)."
 
@@ -83,6 +84,10 @@ class ProductIdMixin:
     Sarees created before the rule existed keep working: their blank ID stays
     editable until staff enter one.
     """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["product_id"].help_text = PRODUCT_ID_HELP_TEXT
 
     def clean_product_id(self):
         value = (self.cleaned_data.get("product_id") or "").strip()
@@ -97,7 +102,38 @@ class ProductIdMixin:
         return value
 
 
-class SareeAdminForm(ProductIdMixin, forms.ModelForm):
+class OptionalSareeAdminFieldsMixin:
+    optional_saree_fields = (
+        "subcategory",
+        "mrp",
+        "discount_percent",
+        "delivery_charge",
+        "gst_percent",
+        "length",
+        "dispatch_note",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for name in self.optional_saree_fields:
+            if name in self.fields:
+                self.fields[name].required = False
+                self.fields[name].help_text = ""
+
+    def clean_delivery_charge(self):
+        value = self.cleaned_data["delivery_charge"]
+        if value is None:
+            return self._meta.model._meta.get_field("delivery_charge").get_default()
+        return value
+
+    def clean_gst_percent(self):
+        value = self.cleaned_data["gst_percent"]
+        if value is None:
+            return self._meta.model._meta.get_field("gst_percent").get_default()
+        return value
+
+
+class SareeAdminForm(OptionalSareeAdminFieldsMixin, ProductIdMixin, forms.ModelForm):
     slug = forms.CharField(
         label="Slug",
         required=False,
@@ -112,7 +148,7 @@ class SareeAdminForm(ProductIdMixin, forms.ModelForm):
         ),
     )
     subcategory = SubCategoryChoiceField(
-        queryset=SubCategory.objects.select_related("category").order_by("category__title", "order", "id"),
+        queryset=SubCategory.objects.select_related("category").order_by("category__title", "title", "id"),
         label="Subcategory",
         empty_label="Subcategory",
         required=False,
@@ -355,6 +391,7 @@ class ContactForm(forms.ModelForm):
 
 class SiteSettingsForm(forms.ModelForm):
     map_embed_url = forms.CharField(
+        label="Map-Iframe",
         required=False,
         widget=forms.Textarea(attrs={"rows": 4, "placeholder": "Paste a map URL or iframe embed code"}),
     )

@@ -18,7 +18,7 @@ class StoreSitemap(Sitemap):
             "terms",
             *Category.objects.all(),
             *SubCategory.objects.select_related("category").all(),
-            *Saree.objects.all(),
+            *Saree.objects.filter(is_featured=True),
             *Product.objects.filter(product_type__is_active=True),
         ]
 

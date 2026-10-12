@@ -39,7 +39,7 @@
                         {% else %}
                         <span class="collection-style-placeholder" aria-hidden="true"><i class="bi bi-flower1"></i></span>
                         {% endif %}
-                        {% with saree_count=sub.sarees.count %}
+                        {% with saree_count=sub.featured_sarees|length %}
                         <span class="collection-style-count">{{ saree_count }} saree{{ saree_count|pluralize }}</span>
                         {% endwith %}
                     </div>

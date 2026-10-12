@@ -30,5 +30,7 @@ urlpatterns = [
     path('', include('store.urls')),
 ]
 
+handler404 = "store.views.custom_404"
+
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

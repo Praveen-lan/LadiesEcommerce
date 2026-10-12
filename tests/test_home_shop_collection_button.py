@@ -12,6 +12,24 @@ from django.urls import reverse
 from store.models import Banner, Category, Customer, Saree
 
 
+@pytest.mark.django_db
+def test_banner_admin_hides_link_and_order_fields(client, admin_user):
+    client.force_login(admin_user)
+
+    add_response = client.get(reverse("admin:store_banner_add"))
+    change_list_response = client.get(reverse("admin:store_banner_changelist"))
+
+    assert add_response.status_code == 200
+    assert set(add_response.context["adminform"].form.fields) == {
+        "title",
+        "subtitle",
+        "image",
+        "is_active",
+    }
+    assert change_list_response.status_code == 200
+    assert "<th scope=\"col\" class=\"column-order\">" not in change_list_response.content.decode()
+
+
 @pytest.fixture
 def hero_banner(db, settings, tmp_path):
     from django.core.files.uploadedfile import SimpleUploadedFile
@@ -65,21 +83,11 @@ def test_shop_collection_button_requires_login_then_lands_on_catalog(
     assert b"Chiffon Sunset Saree" in response.content
 
 
-def test_banner_without_a_link_never_falls_back_to_contact(client, hero_banner, category):
-    assert not Banner.objects.get(pk=hero_banner.pk).link
-
+def test_hero_button_always_uses_catalog_destination(client, hero_banner, category):
     content = client.get(reverse("store:home")).content.decode()
 
+    assert f'href="{reverse("store:catalog")}" class="btn btn-gold btn-lg rounded-pill px-4"' in content
     assert f'href="{reverse("store:contact")}" class="btn btn-gold btn-lg rounded-pill px-4"' not in content
-
-
-def test_explicit_banner_link_is_still_honoured(client, hero_banner, category):
-    hero_banner.link = reverse("store:category_detail", args=[category.slug])
-    hero_banner.save()
-
-    href = hero_shop_buttons(client.get(reverse("store:home")).content.decode())[0]
-
-    assert href == reverse("store:category_detail", args=[category.slug])
 
 
 def test_every_collection_layer_cta_goes_to_the_catalog(client, hero_banner, category):
@@ -90,7 +98,7 @@ def test_every_collection_layer_cta_goes_to_the_catalog(client, hero_banner, cat
         image_url="https://images.example/featured.jpg",
         is_featured=True,
     )
-    premium = Category.objects.create(title="Premium Collection", tier=Category.Tier.MEDIUM, order=2)
+    premium = Category.objects.create(title="Premium Collection", tier=Category.Tier.MEDIUM)
     Saree.objects.create(
         category=premium,
         name="Featured Cotton Saree",
@@ -119,12 +127,14 @@ def test_catalog_collection_filter_opens_only_the_selected_collection(client, db
         name="Premium Silk Saree",
         price="4999",
         image_url="https://images.example/premium.jpg",
+        is_featured=True,
     )
     Saree.objects.create(
         category=luxury,
         name="Luxury Silk Saree",
         price="6999",
         image_url="https://images.example/luxury.jpg",
+        is_featured=True,
     )
 
     catalog = client.get(reverse("store:catalog"))
@@ -155,6 +165,7 @@ def test_collection_pages_handle_legacy_sarees_without_slugs(client, category):
         name="Legacy Saree",
         price="1999.00",
         image_url="https://images.example/legacy.jpg",
+        is_featured=True,
     )
     Saree.objects.filter(pk=saree.pk).update(slug="")
 

@@ -198,16 +198,16 @@ class Command(BaseCommand):
                 continue
             if not cat:
                 pal = PALETTES[tier]
-                cat = Category(title=pal["name"], tier=tier, subtitle=pal["subtitle"], order=tiers.index(tier))
+                cat = Category(title=pal["name"], tier=tier, subtitle=pal["subtitle"])
             cat.image = save_image(make_image(PALETTES[tier]["colors"][:2] + ["#000000"], HD["category"], PALETTES[tier]["name"], True), f"cat_{tier}.png")
             cat.save()
             self.stdout.write(self.style.SUCCESS(f"Category image for '{cat.title}' set."))
 
-            for position, (title, subtitle, keywords) in enumerate(DEFAULT_SUBCATEGORIES):
+            for title, subtitle, keywords in DEFAULT_SUBCATEGORIES:
                 SubCategory.objects.get_or_create(
                     category=cat,
                     title=title,
-                    defaults={"subtitle": subtitle, "order": position},
+                    defaults={"subtitle": subtitle},
                 )
             self.stdout.write(self.style.SUCCESS(f"{len(DEFAULT_SUBCATEGORIES)} sub categories created for '{cat.title}'."))
 

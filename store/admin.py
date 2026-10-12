@@ -1,18 +1,24 @@
 import mimetypes
+from datetime import datetime
 
 from django.contrib import admin, messages
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import FieldDoesNotExist, PermissionDenied
 from django.db import models
 from django.http import FileResponse, Http404, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
+from django.utils.formats import date_format, time_format
 from django.utils.html import format_html
 from django.utils.http import unquote
 from django import forms
+from django.contrib.admin.widgets import AdminDateWidget, AdminTimeWidget
+from django_prose_editor.fields import ProseEditorFormField
+from django_prose_editor.widgets import AdminProseEditorWidget
 
-from .forms import ProductIdMixin, SareeAdminForm, SiteSettingsForm
-from .validators import IMAGE_UPLOAD_ERROR, validate_image_extension
+from .forms import OptionalSareeAdminFieldsMixin, ProductIdMixin, SareeAdminForm, SiteSettingsForm
+from .richtext import sanitize_terms_html
+from .validators import ADMIN_IMAGE_UPLOAD_ERROR, validate_admin_image_extension, validate_image_extension
 from .models import (
     AboutPage,
     Banner,
@@ -21,7 +27,6 @@ from .models import (
     Customer,
     Order,
     OrderItem,
-    OTPRequest,
     LoginPage,
     PaymentProof,
     PaymentQR,
@@ -142,15 +147,23 @@ def blank_text_initial(form):
     for field in form.fields.values():
         field.label = format_html("<strong>{}</strong>", field.label)
         if isinstance(field, forms.ImageField):
-            if validate_image_extension not in field.validators:
-                field.validators.append(validate_image_extension)
-            field.error_messages["invalid_image"] = IMAGE_UPLOAD_ERROR
-            field.help_text = "Upload a JPG, JPEG, PNG, or WebP image. CSV and Excel files are not accepted."
+            field.validators = [
+                validator
+                for validator in field.validators
+                if validator is not validate_image_extension
+            ]
+            if validate_admin_image_extension not in field.validators:
+                field.validators.append(validate_admin_image_extension)
+            field.error_messages["invalid_image"] = ADMIN_IMAGE_UPLOAD_ERROR
+            field.help_text = ADMIN_IMAGE_UPLOAD_ERROR
 
     if form.instance.pk is not None:
         return
     for name, field in form.fields.items():
-        model_field = form._meta.model._meta.get_field(name)
+        try:
+            model_field = form._meta.model._meta.get_field(name)
+        except FieldDoesNotExist:
+            continue
         if not isinstance(
             field.widget,
             (forms.CheckboxInput, forms.RadioSelect, forms.Select, forms.HiddenInput),
@@ -174,6 +187,99 @@ class BlankTextOnAddMixin:
         BlankOnAddForm.__name__ = form_class.__name__
         return BlankOnAddForm
 
+
+def last_updated_date_field():
+    return forms.DateField(label="Date", required=False, widget=AdminDateWidget)
+
+
+def last_updated_time_field():
+    return forms.TimeField(label="Time", required=False, widget=AdminTimeWidget)
+
+
+def created_date_field():
+    return forms.DateField(label="Date", required=False, widget=AdminDateWidget)
+
+
+def created_time_field():
+    return forms.TimeField(label="Time", required=False, widget=AdminTimeWidget)
+
+
+class TimestampFieldsMixin:
+    timestamp_model_fields = {
+        "created": "created_at",
+        "last_updated": "updated_at",
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for prefix, model_field in self.timestamp_model_fields.items():
+            timestamp = getattr(self.instance, model_field) if self.instance.pk else None
+            timestamp = timestamp or timezone.now()
+            local_timestamp = timezone.localtime(timestamp)
+            self.initial.setdefault(f"{prefix}_date", local_timestamp.date())
+            self.initial.setdefault(f"{prefix}_time", local_timestamp.time())
+
+    def clean(self):
+        cleaned_data = super().clean()
+        for prefix in self.timestamp_model_fields:
+            date_field = f"{prefix}_date"
+            time_field = f"{prefix}_time"
+            has_date = cleaned_data.get(date_field) is not None
+            has_time = cleaned_data.get(time_field) is not None
+            if has_date != has_time:
+                self.add_error(date_field, "Enter both a date and a time.")
+                self.add_error(time_field, "Enter both a date and a time.")
+        return cleaned_data
+
+
+class LastUpdatedAdminForm(TimestampFieldsMixin, forms.ModelForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
+
+    class Meta:
+        model = LoginPage
+        fields = "__all__"
+
+
+class AboutPageAdminForm(TimestampFieldsMixin, forms.ModelForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
+
+    class Meta:
+        model = AboutPage
+        fields = "__all__"
+
+
+class PaymentQRAdminForm(TimestampFieldsMixin, forms.ModelForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
+
+    class Meta:
+        model = PaymentQR
+        fields = "__all__"
+
+
+class PaymentProofAdminForm(TimestampFieldsMixin, forms.ModelForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
+    timestamp_model_fields = {
+        "created": "submitted_at",
+        "last_updated": "updated_at",
+    }
+
+    class Meta:
+        model = PaymentProof
+        fields = "__all__"
+
+
 # Static path of the helper that routes the object "Delete" button to the ticked
 # inline rows. It must stay a plain static path: Django percent-encodes a "?"
 # inside the path, which turns a cache-busting query string into a 404 and
@@ -182,71 +288,267 @@ SELECTED_INLINE_DELETE_JS = "store/admin/selected-inline-delete.js"
 SUBCATEGORY_FILTER_JS = "store/admin/subcategory-filter.js"
 
 
-@admin.register(LoginPage)
-class LoginPageAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    fields = ("heading", "description", "tagline", "background_image", "updated_at")
-    readonly_fields = ("updated_at",)
-    list_display = ("heading", "updated_at")
+class TimestampAdminMixin:
+    timestamp_model_fields = {
+        "created": "created_at",
+        "last_updated": "updated_at",
+    }
 
-    def has_add_permission(self, request):
-        return not LoginPage.objects.exists()
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if len(fieldsets) != 1 or fieldsets[0][0] is not None:
+            return fieldsets
+
+        fields = tuple(fieldsets[0][1]["fields"])
+        timestamp_fields = {
+            f"{prefix}_{part}"
+            for prefix in self.timestamp_model_fields
+            for part in ("date", "time")
+        }
+        remaining_fields = tuple(field for field in fields if field not in timestamp_fields)
+        grouped_fieldsets = []
+        if remaining_fields:
+            grouped_fieldsets.append((None, {"fields": remaining_fields}))
+        for prefix, heading in (("last_updated", "Last updated"), ("created", "Created at")):
+            group = tuple(
+                field
+                for field in (f"{prefix}_date", f"{prefix}_time")
+                if field in fields
+            )
+            if group:
+                grouped_fieldsets.append((heading, {"fields": group}))
+        return grouped_fieldsets
+
+    @admin.display(description="Created Date", empty_value="—")
+    def created_date(self, obj):
+        timestamp_field = self.timestamp_model_fields.get("created")
+        timestamp = getattr(obj, timestamp_field, None) if timestamp_field else None
+        if timestamp is None:
+            return None
+        return date_format(timezone.localtime(timestamp), "DATE_FORMAT")
+
+    @admin.display(description="Created Time", empty_value="—")
+    def created_time(self, obj):
+        timestamp_field = self.timestamp_model_fields.get("created")
+        timestamp = getattr(obj, timestamp_field, None) if timestamp_field else None
+        if timestamp is None:
+            return None
+        return time_format(timezone.localtime(timestamp).time(), "TIME_FORMAT")
+
+    @admin.display(description="Last Updated Date", empty_value="—")
+    def last_updated_date(self, obj):
+        timestamp_field = self.timestamp_model_fields.get("last_updated")
+        timestamp = getattr(obj, timestamp_field, None) if timestamp_field else None
+        if timestamp is None:
+            return None
+        return date_format(timezone.localtime(timestamp), "DATE_FORMAT")
+
+    @admin.display(description="Last Updated Time", empty_value="—")
+    def last_updated_time(self, obj):
+        timestamp_field = self.timestamp_model_fields.get("last_updated")
+        timestamp = getattr(obj, timestamp_field, None) if timestamp_field else None
+        if timestamp is None:
+            return None
+        return time_format(timezone.localtime(timestamp).time(), "TIME_FORMAT")
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        updates = {}
+        for prefix, model_field in self.timestamp_model_fields.items():
+            date_value = form.cleaned_data.get(f"{prefix}_date")
+            time_value = form.cleaned_data.get(f"{prefix}_time")
+            if date_value is None or time_value is None:
+                continue
+            local_timestamp = datetime.combine(date_value, time_value)
+            updates[model_field] = timezone.make_aware(
+                local_timestamp,
+                timezone.get_current_timezone(),
+            )
+        if updates:
+            self.model._default_manager.filter(pk=obj.pk).update(**updates)
+            for model_field, timestamp in updates.items():
+                setattr(obj, model_field, timestamp)
+
+
+@admin.register(LoginPage)
+class LoginPageAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
+    timestamp_model_fields = {
+        "created": "created_at",
+        "last_updated": "updated_at",
+    }
+    form = LastUpdatedAdminForm
+    fields = (
+        "heading",
+        "description",
+        "tagline",
+        "background_image",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
+    )
+    list_display = (
+        "heading",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
+    )
 
     def has_delete_permission(self, request, obj=None):
         return False
 
 
 @admin.register(AboutPage)
-class AboutPageAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    list_display = ("title", "updated_at")
-    readonly_fields = ("updated_at",)
+class AboutPageAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
+    timestamp_model_fields = {
+        "created": "created_at",
+        "last_updated": "updated_at",
+    }
+    form = AboutPageAdminForm
+    list_display = (
+        "title",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
+    )
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+class TermsPageAdminForm(TimestampFieldsMixin, forms.ModelForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
+    content = ProseEditorFormField(
+        config={
+            "extensions": {
+                "Bold": True,
+                "Blockquote": True,
+                "BulletList": True,
+                "HardBreak": True,
+                "Heading": {"levels": [2, 3, 4]},
+                "HorizontalRule": True,
+                "Italic": True,
+                "ListItem": True,
+                "OrderedList": True,
+                "Strike": True,
+                "Subscript": True,
+                "Superscript": True,
+                "TextAlign": True,
+                "TextStyle": True,
+                "Underline": True,
+            },
+        },
+        preset="configurable",
+        widget=AdminProseEditorWidget(),
+    )
+
+    class Meta:
+        model = TermsPage
+        fields = "__all__"
+
+    def clean_content(self):
+        return sanitize_terms_html(self.cleaned_data["content"])
 
 
 @admin.register(TermsPage)
-class TermsPageAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    list_display = ("title", "updated_at")
-    readonly_fields = ("updated_at",)
+class TermsPageAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
+    timestamp_model_fields = {
+        "created": "created_at",
+        "last_updated": "updated_at",
+    }
+    form = TermsPageAdminForm
+    list_display = ("title", "created_date", "created_time", "last_updated_date", "last_updated_time")
+    actions = None
 
-    def has_add_permission(self, request):
-        return not TermsPage.objects.exists()
+    def get_fields(self, request, obj=None):
+        fields = ("title", "subtitle", "content")
+        return fields + (
+            "created_date",
+            "created_time",
+            "last_updated_date",
+            "last_updated_time",
+        )
 
-    def has_delete_permission(self, request, obj=None):
-        return False
+
+class ContactMessageAdminForm(TimestampFieldsMixin, forms.ModelForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
+
+    class Meta:
+        model = ContactMessage
+        fields = "__all__"
+
+
+class CustomerAdminForm(TimestampFieldsMixin, forms.ModelForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
+
+    class Meta:
+        model = Customer
+        fields = "__all__"
+
+
+class OrderAdminForm(TimestampFieldsMixin, forms.ModelForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
+
+    class Meta:
+        model = Order
+        fields = "__all__"
+
+
+class SareeTimestampAdminForm(TimestampFieldsMixin, SareeAdminForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
 
 
 @admin.register(ContactMessage)
-class ContactMessageAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    list_display = ("name", "email", "subject", "is_read", "created_at")
+class ContactMessageAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
+    timestamp_model_fields = {"created": "created_at", "last_updated": "updated_at"}
+    form = ContactMessageAdminForm
+    list_display = (
+        "name",
+        "email",
+        "subject",
+        "is_read",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
+    )
     list_filter = ("is_read", "created_at")
     search_fields = ("name", "email", "phone", "subject", "message")
-    readonly_fields = ("created_at",)
     list_editable = ("is_read",)
 
 
 @admin.register(Customer)
-class CustomerAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    list_display = ("name", "phone", "email", "profile_image", "created_at")
-    search_fields = ("name", "phone", "email")
+class CustomerAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
+    timestamp_model_fields = {"created": "created_at", "last_updated": "updated_at"}
+    form = CustomerAdminForm
+    list_display = (
+        "name",
+        "phone",
+        "profile_image",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
+    )
+    search_fields = ("name", "phone")
     list_filter = ("created_at",)
-
-
-@admin.register(OTPRequest)
-class OTPRequestAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    list_display = ("phone", "code", "is_verified", "attempts", "expires_at", "created_at")
-    list_filter = ("is_verified",)
-    search_fields = ("phone", "code")
-    readonly_fields = ("phone", "code", "is_verified", "attempts", "expires_at", "created_at")
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return True
 
 
 class OrderItemInline(BlankTextOnAddMixin, admin.TabularInline):
@@ -268,11 +570,25 @@ class OrderItemInline(BlankTextOnAddMixin, admin.TabularInline):
 
 
 @admin.register(Order)
-class OrderAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    list_display = ("order_id", "name", "phone", "payment_method", "payment_status", "status", "total", "created_at")
+class OrderAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
+    timestamp_model_fields = {"created": "created_at", "last_updated": "updated_at"}
+    form = OrderAdminForm
+    list_display = (
+        "order_id",
+        "name",
+        "phone",
+        "payment_method",
+        "payment_status",
+        "status",
+        "total",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
+    )
     list_filter = ("payment_method", "payment_status", "status")
     search_fields = ("order_id", "name", "phone", "email")
-    readonly_fields = ("order_id", "subtotal", "delivery_charge", "gst", "total", "created_at")
+    readonly_fields = ("order_id", "subtotal", "delivery_charge", "gst", "total")
     inlines = [OrderItemInline]
     delete_confirmation_template = "admin/store/order/delete_confirmation.html"
 
@@ -411,28 +727,22 @@ class SiteSettingsAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     form = SiteSettingsForm
     list_display = ("shop_name", "phone", "email")
 
-    def has_add_permission(self, request):
-        return not SiteSettings.objects.exists()
-
     def has_delete_permission(self, request, obj=None):
         return False
 
 
-class SEOAdminForm(forms.ModelForm):
+class SEOAdminForm(TimestampFieldsMixin, forms.ModelForm):
+    created_date = created_date_field()
+    created_time = created_time_field()
+    last_updated_date = last_updated_date_field()
+    last_updated_time = last_updated_time_field()
+
     """Field list for SEO Settings; :class:`BlankTextOnAddMixin` blanks it."""
 
     class Meta:
         model = SEO
-        fields = (
-            "page_name",
-            "site_name",
-            "default_title",
-            "default_page_description",
-            "meta_title",
-            "default_description",
-            "default_keywords",
-            "google_site_verification",
-        )
+        fields = "__all__"
+        exclude = ("robots_extra",)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -441,7 +751,7 @@ class SEOAdminForm(forms.ModelForm):
 
 
 @admin.register(SEO)
-class SEOAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
+class SEOAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
     """One row per SEO setup; the newest added row is the one the site uses.
 
     ``robots_extra`` is kept in the database (robots.txt still reads it) but is
@@ -449,6 +759,10 @@ class SEOAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     """
 
     form = SEOAdminForm
+    timestamp_model_fields = {
+        "created": "created_at",
+        "last_updated": "updated_at",
+    }
     fields = (
         "page_name",
         "site_name",
@@ -458,17 +772,26 @@ class SEOAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
         "default_description",
         "default_keywords",
         "google_site_verification",
-        "updated_at",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
     )
-    list_display = ("page_name", "site_name", "updated_at")
+    list_display = (
+        "page_name",
+        "site_name",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
+    )
     search_fields = ("page_name", "site_name")
-    readonly_fields = ("updated_at",)
 
     def has_delete_permission(self, request, obj=None):
         return False
 
 
-class SareeInlineForm(ProductIdMixin, forms.ModelForm):
+class SareeInlineForm(OptionalSareeAdminFieldsMixin, ProductIdMixin, forms.ModelForm):
     class Meta:
         model = Saree
         fields = (
@@ -557,7 +880,7 @@ class SareeInline(BlankTextOnAddMixin, admin.TabularInline):
 @admin.register(Category)
 class CategoryAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     form = CategoryAdminForm
-    list_display = ("title", "order", "saree_count", "subcategory_count")
+    list_display = ("title", "saree_count", "subcategory_count")
     list_filter = ()
     search_fields = ("title", "subtitle")
     inlines = []
@@ -693,7 +1016,7 @@ class SubCategorySareeInline(BlankTextOnAddMixin, admin.TabularInline):
 @admin.register(SubCategory)
 class SubCategoryAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
     form = SubCategoryAdminForm
-    list_display = ("title", "category", "order", "saree_count")
+    list_display = ("title", "category", "saree_count")
     list_filter = ("category",)
     search_fields = ("title", "subtitle", "category__title")
     autocomplete_fields = ("category",)
@@ -705,8 +1028,9 @@ class SubCategoryAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
 
 
 @admin.register(Saree)
-class SareeAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    form = SareeAdminForm
+class SareeAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
+    timestamp_model_fields = {"created": "created_at", "last_updated": "updated_at"}
+    form = SareeTimestampAdminForm
     list_display = (
         "name",
         "product_id",
@@ -715,7 +1039,10 @@ class SareeAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
         "final_amount",
         "original_amount",
         "in_stock",
-        "created_at",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
     )
     list_filter = ("category", "subcategory", "is_featured", "in_stock")
     search_fields = ("name", "product_id", "description", "fabric")
@@ -733,13 +1060,35 @@ class SareeAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
 
 
 @admin.register(PaymentQR)
-class PaymentQRAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
+class PaymentQRAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
     """Lets staff upload the payment QR code shown in the payment method section."""
 
-    list_display = ("qr_thumbnail", "label", "upi_id", "is_active", "updated_at")
+    timestamp_model_fields = {
+        "created": "created_at",
+        "last_updated": "updated_at",
+    }
+    form = PaymentQRAdminForm
+    list_display = (
+        "qr_thumbnail",
+        "label",
+        "upi_id",
+        "is_active",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
+    )
     list_editable = ("is_active",)
-    readonly_fields = ("created_at", "updated_at")
-    fields = ("image", "label", "upi_id", "is_active", "created_at", "updated_at")
+    fields = (
+        "image",
+        "label",
+        "upi_id",
+        "is_active",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
+    )
 
     @admin.display(description="QR")
     def qr_thumbnail(self, obj):
@@ -747,21 +1096,24 @@ class PaymentQRAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
             return "No image"
         return format_html('<img src="{}" style="height:60px;border:1px solid #e4dec6;border-radius:6px;">', obj.image.url)
 
-    def has_add_permission(self, request):
-        # One code at a time keeps the payment screen unambiguous; edit it instead.
-        return not PaymentQR.objects.exists()
-
     def has_delete_permission(self, request, obj=None):
         return False
 
 
 @admin.register(PaymentProof)
-class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
+class PaymentProofAdmin(TimestampAdminMixin, BlankTextOnAddMixin, admin.ModelAdmin):
     """Every uploaded payment screenshot, with who paid, what for and when."""
 
+    timestamp_model_fields = {
+        "created": "submitted_at",
+        "last_updated": "updated_at",
+    }
+    form = PaymentProofAdminForm
     list_display = (
-        "submitted_at",
-        "updated_at",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
         "customer_name",
         "phone",
         "order_reference",
@@ -771,11 +1123,10 @@ class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
         "payment_state",
         "screenshot_link",
     )
-    list_filter = ("status", "payment_method", "submitted_at")
+    list_filter = ("status", "payment_method")
     search_fields = ("customer_name", "phone", "reference", "order__order_id", "order__name")
-    date_hierarchy = "submitted_at"
     ordering = ("-updated_at", "-id")
-    readonly_fields = ("submitted_at", "updated_at", "reviewed_at", "reviewed_by", "order_details", "order_summary", "screenshot_link")
+    readonly_fields = ("order_details", "order_summary", "screenshot_link")
     fields = (
         "customer_name",
         "phone",
@@ -788,10 +1139,10 @@ class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
         "screenshot_link",
         "notes",
         "status",
-        "reviewed_by",
-        "reviewed_at",
-        "submitted_at",
-        "updated_at",
+        "created_date",
+        "created_time",
+        "last_updated_date",
+        "last_updated_time",
     )
     actions = ("mark_verified", "mark_rejected", "mark_pending")
 
@@ -859,19 +1210,13 @@ class PaymentProofAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
         changed = 0
         for proof in queryset:
             proof.status = status
-            proof.reviewed_at = timezone.now()
-            proof.reviewed_by = request.user
-            proof.save(update_fields=["status", "reviewed_at", "reviewed_by", "updated_at"])
+            proof.save(update_fields=["status", "updated_at"])
             changed += 1
         self.message_user(request, f"{changed} payment verification(s) updated.")
-
-    def save_model(self, request, obj, form, change):
-        obj.reviewed_by = request.user
-        obj.reviewed_at = timezone.now()
-        super().save_model(request, obj, form, change)
 
 
 @admin.register(Banner)
 class BannerAdmin(BlankTextOnAddMixin, admin.ModelAdmin):
-    list_display = ("title", "is_active", "order")
+    fields = ("title", "subtitle", "image", "is_active")
+    list_display = ("title", "is_active")
     list_filter = ("is_active",)

@@ -1,0 +1,27 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Page not found | Swathi Designers</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body class="not-found-page">
+    <main class="not-found-card" aria-labelledby="not-found-title">
+        <div class="not-found-art" aria-hidden="true">
+            <span class="not-found-orbit"></span>
+            <span class="not-found-orbit not-found-orbit-inner"></span>
+            <span class="not-found-number">404</span>
+            <span class="not-found-flower"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+        </div>
+        <p class="not-found-eyebrow">A little detour</p>
+        <h1 id="not-found-title">This page wandered off</h1>
+        <p class="not-found-copy">We couldn’t find the page you’re looking for. It may have moved or the link may be incorrect.</p>
+        <a class="not-found-home" href="{% url 'store:home' %}">Back to the collection <span aria-hidden="true">&rarr;</span></a>
+    </main>
+</body>
+</html>
